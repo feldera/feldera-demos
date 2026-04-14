@@ -1,2 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Code editors
 .idea/
+
+# Env files
+.env
+.env *
+".env *"
+
+# Agentic demo run artifacts
+agentic-*/demo_runs/
+agentic-*/investigator.log
+
+# Local workspaces — not committed
+agents/
+agentic-tests/
+

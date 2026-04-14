@@ -1,0 +1,1 @@
+Read `agentic-guides/agentic-fine-grained-access/feldera-analyze-fga.md` and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
