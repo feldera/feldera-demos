@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Jupyter
+.ipynb_checkpoints/
+
 # Code editors
 .idea/
 
@@ -19,3 +22,7 @@ agentic-*/investigator.log
 agents/
 agentic-tests/
 
+# Hopsworks demo: per-project SSL certs downloaded by hopsworks-Python at runtime
+hopsworks/hopsworks-secrets/*
+!hopsworks/hopsworks-secrets/.gitkeep
+hopsworks/fraud_streaming_model

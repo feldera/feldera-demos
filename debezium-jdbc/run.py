@@ -1,19 +1,29 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "requests",
+#     "psycopg[binary]==3.2.1",
+#     "feldera",
+# ]
+# ///
+#
 # Stream output of a view to Postgres via Debezium JDBC sink connector and Confluent JDBC sink connector.
 #
-# To run the demo, start RedPanda, Kafka Connect, and Postgres containers:
-# > docker compose -f deploy/docker-compose.yml \
-#                  -f deploy/docker-compose-extra.yml \
-#                  up redpanda kafka-connect postgres --build --renew-anon-volumes --force-recreate
+# Start the services:
+# > docker compose -f debezium-jdbc/docker-compose.yml up -d --build --wait
 #
 # Run this script:
-# > python3 run.py --api-url=http://localhost:8080 --start
+# > uv run debezium-jdbc/run.py --api-url=http://localhost:8080 --start
+#
+# Clean up:
+# > docker compose -f debezium-jdbc/docker-compose.yml down -v
 import os
+import subprocess
 import time
 import datetime
 import requests
 import argparse
 import uuid
-from plumbum.cmd import rpk
 import psycopg
 import random
 from feldera import PipelineBuilder, FelderaClient, Pipeline
@@ -194,13 +204,26 @@ def wait_for_n_outputs(table_name: str, expected_rows: int):
                     time.sleep(3)
 
 
+def rpk_cmd(*args):
+    """Run rpk inside the redpanda container via docker compose."""
+    compose_file = os.path.join(SCRIPT_DIR, "docker-compose.yml")
+    result = subprocess.run(
+        ["docker", "compose", "-f", compose_file, "exec", "-T", "redpanda", "rpk"] + list(args),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 and result.stderr.strip():
+        print(f"rpk: {result.stderr.strip()}")
+    return result
+
+
 def create_jdbc_connector(connector_name: str, topic_name: str, config: Dict):
     connect_server = os.getenv("KAFKA_CONNECT_SERVER", "http://localhost:8083")
 
     # It's important to stop the connector before deleting the topics.
     print("(Re-)creating topic")
-    rpk["topic", "delete", topic_name]()
-    rpk["topic", "create", topic_name]()
+    rpk_cmd("topic", "delete", topic_name)
+    rpk_cmd("topic", "create", topic_name)
 
     print("Create connector")
     config = {"name": connector_name, "config": config}
@@ -348,10 +371,29 @@ def generate_inputs(pipeline: Pipeline):
     wait_for_n_outputs(JSON_TABLE_NAME, 199)
     wait_for_n_outputs(AVRO_TABLE_NAME, 199)
 
-    # deletes = [{"delete": element} for element in data]
-    # pipeline.input_json("test_table", deletes, update_format="insert_delete")
-    # # #wait_for_n_outputs(JSON_TABLE_NAME, 0)
-    # wait_for_n_outputs(AVRO_TABLE_NAME, 0)
+    validate_results(pipeline)
+
+
+def validate_results(pipeline: Pipeline):
+    """Query Feldera and Postgres to show sample rows from each."""
+    print("\n--- Feldera ad-hoc query (5 rows from test_view) ---")
+    for row in pipeline.query("SELECT * FROM test_view LIMIT 5"):
+        print(row)
+
+    postgres_server = os.getenv("POSTGRES_SERVER", "localhost:6432")
+    with psycopg.connect(
+        f"postgresql://postgres:postgres@{postgres_server}/{DATABASE_NAME}"
+    ) as conn:
+        with conn.cursor() as cur:
+            print(f"\n--- Postgres: {JSON_TABLE_NAME} (5 rows) ---")
+            cur.execute(f"SELECT * FROM {JSON_TABLE_NAME} LIMIT 5")
+            for row in cur.fetchall():
+                print(row)
+
+            print(f"\n--- Postgres: {AVRO_TABLE_NAME} (5 rows) ---")
+            cur.execute(f"SELECT * FROM {AVRO_TABLE_NAME} LIMIT 5")
+            for row in cur.fetchall():
+                print(row)
 
 
 if __name__ == "__main__":

@@ -1,44 +1,76 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "requests==2.32.4",
+#     "pymysql==1.1.1",
+#     "cryptography==44.0.0",
+#     "feldera",
+# ]
+# ///
+#
+# Replicate a MySQL inventory database into Feldera via the Debezium MySQL
+# source connector and Kafka (RedPanda).
+#
+# Start the services:
+# > docker compose -f debezium-mysql/docker-compose.yml up -d --build --wait
+#
+# Run this script:
+# > uv run debezium-mysql/run.py --api-url=http://localhost:8080 --start
+#
+# Clean up:
+# > docker compose -f debezium-mysql/docker-compose.yml down -v
+
 import os
 import time
-import json
 import requests
 import argparse
+import pymysql
+from feldera import PipelineBuilder, FelderaClient, Pipeline
 
-# File locations
+
 SCRIPT_DIR = os.path.join(os.path.dirname(__file__))
 PROJECT_SQL = os.path.join(SCRIPT_DIR, "project.sql")
+
+PIPELINE_NAME = "debezium-mysql"
+CONNECTOR_NAME = "inventory-connector"
+
+EXPECTED_TOPICS = [
+    "inventory.inventory.orders",
+    "inventory.inventory.addresses",
+    "inventory.inventory.customers",
+    "inventory.inventory.products",
+    "inventory.inventory.products_on_hand",
+]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--api-url",
-        required=True,
+        default="http://localhost:8080",
         help="Feldera API URL (e.g., http://localhost:8080 )",
     )
     parser.add_argument(
         "--start", action="store_true", default=False, help="Start the Feldera pipeline"
     )
     args = parser.parse_args()
+
     create_debezium_mysql_connector()
-    prepare_feldera_pipeline(args.api_url, args.start)
+    pipeline = create_feldera_pipeline(args.api_url, args.start)
+
+    if args.start:
+        validate_results(pipeline)
 
 
 def create_debezium_mysql_connector():
     connect_server = os.getenv("KAFKA_CONNECT_SERVER", "http://localhost:8083")
 
-    print("Delete old connector")
-    # Delete previous connector instance if any.
-    # Note: this won't delete any existing Kafka topics created
-    # by the connector.
-    requests.delete(f"{connect_server}/connectors/inventory-connector")
+    print(f"Deleting old connector {CONNECTOR_NAME}")
+    requests.delete(f"{connect_server}/connectors/{CONNECTOR_NAME}")
 
-    print("Create connector")
-    # Create connector.  The new connector will continue working with
-    # existing Kafka topics created by the previous connectors instance
-    # if they exist.
+    print("Creating connector")
     config = {
-        "name": "inventory-connector",
+        "name": CONNECTOR_NAME,
         "config": {
             "connector.class": "io.debezium.connector.mysql.MySqlConnector",
             "tasks.max": "1",
@@ -62,13 +94,9 @@ def create_debezium_mysql_connector():
     print("Checking connector status")
     start_time = time.time()
     while True:
-        response = requests.get(
-            f"{connect_server}/connectors/inventory-connector/status"
-        )
-        print(f"response: {response}")
+        response = requests.get(f"{connect_server}/connectors/{CONNECTOR_NAME}/status")
         if response.ok:
             status = response.json()
-            print(f"status: {status}")
             if status["connector"]["state"] != "RUNNING":
                 raise Exception(f"Unexpected connector state: {status}")
             if len(status["tasks"]) == 0:
@@ -79,135 +107,90 @@ def create_debezium_mysql_connector():
                 raise Exception(f"Unexpected task state: {status}")
             break
         else:
-            if time.time() - start_time >= 5:
+            if time.time() - start_time >= 10:
                 raise Exception("Timeout waiting for connector creation")
             print("Waiting for connector creation")
             time.sleep(1)
 
-    # Connector is up, but this doesn't guarantee that it has created all 5 topics.
+    # Wait for the 5 expected Kafka topics to be created by the connector snapshot.
     print("Waiting for the connector to create Kafka topics")
     start_time = time.time()
     while True:
-        response = requests.get(
-            f"{connect_server}/connectors/inventory-connector/topics"
-        )
+        response = requests.get(f"{connect_server}/connectors/{CONNECTOR_NAME}/topics")
         if not response.ok:
             raise Exception(f"Error retrieving topic list from connector: {response}")
-        else:
-            status = response.json()
-            print(f"topics: {status}")
-            topics = status["inventory-connector"]["topics"]
-            if all(
-                element in topics
-                for element in [
-                    "inventory.inventory.orders",
-                    "inventory.inventory.addresses",
-                    "inventory.inventory.customers",
-                    "inventory.inventory.products",
-                    "inventory.inventory.products_on_hand",
-                ]
-            ):
-                break
-
-            if time.time() - start_time >= 10:
-                raise Exception("Timeout waiting for topic creation")
-            print("Waiting for topics")
-            time.sleep(1)
+        topics = response.json()[CONNECTOR_NAME]["topics"]
+        if all(t in topics for t in EXPECTED_TOPICS):
+            print(f"All expected topics created.")
+            break
+        if time.time() - start_time >= 30:
+            raise Exception(f"Timeout waiting for topic creation. Current: {topics}")
+        print(f"Waiting for topics (have {len(topics)}/{len(EXPECTED_TOPICS)})")
+        time.sleep(1)
 
 
-def prepare_feldera_pipeline(api_url, start_pipeline):
+def create_feldera_pipeline(api_url: str, start_pipeline: bool) -> Pipeline:
     pipeline_to_kafka_server = "redpanda:9092"
-
-    # Test connectivity by fetching the existing pipelines
-    print("Checking connectivity by listing pipelines...")
-    response = requests.get(f"{api_url}/v0/pipelines?code=false")
-    if response.ok:
-        print("SUCCESS: can reach the API")
-    else:
-        print("FAILURE: could not reach API")
-        exit(1)
-
-    # Pipeline name
-    pipeline_name = "debezium-mysql"
-
-    # Stop the pipeline if it already exists such that it can be edited
-    print("Stopping the pipeline...")
-    if requests.get(f"{api_url}/v0/pipelines/{pipeline_name}").ok:
-        requests.post(
-            f"{api_url}/v0/pipelines/{pipeline_name}/stop?force=true"
-        ).raise_for_status()
-        while (
-            requests.get(f"{api_url}/v0/pipelines/{pipeline_name}").json()[
-                "deployment_status"
-            ]
-            != "Stopped"
-        ):
-            time.sleep(1)
-
-    # Create pipeline
-    print("Creating pipeline...")
     program_sql = (
         open(PROJECT_SQL)
         .read()
         .replace("[REPLACE-BOOTSTRAP-SERVERS]", pipeline_to_kafka_server)
     )
-    response = requests.put(
-        f"{api_url}/v0/pipelines/{pipeline_name}",
-        json={
-            "name": pipeline_name,
-            "description": "Description of the debezium-mysql pipeline",
-            "runtime_config": {},
-            "program_code": program_sql,
-            "program_config": {},
-        },
-    )
-    if response.ok:
-        print("SUCCESS: created pipeline")
-        print(json.dumps(json.loads(response.content.decode("utf-8")), indent=4))
-    else:
-        print("FAILURE: could not create pipeline")
-        print(json.dumps(json.loads(response.content.decode("utf-8")), indent=4))
-        exit(1)
 
-    # Wait for pipeline program compilation
-    while True:
-        response = requests.get(f"{api_url}/v0/pipelines/{pipeline_name}")
-        if response.ok:
-            pipeline = json.loads(response.content.decode("utf-8"))
-            print("Program status: %s" % pipeline["program_status"])
-            if pipeline["program_status"] == "Success":
-                break
-            time.sleep(5)
-        else:
-            print("FAILURE: could not check pipeline")
-            print(json.dumps(json.loads(response.content.decode("utf-8")), indent=4))
-            exit(1)
+    client = FelderaClient(api_url)
+    print("Creating the pipeline...")
+    pipeline = PipelineBuilder(
+        client, name=PIPELINE_NAME, sql=program_sql
+    ).create_or_replace()
 
-    # (Re)start the pipeline
     if start_pipeline:
-        print("Starting pipeline...")
-        requests.post(
-            f"{api_url}/v0/pipelines/{pipeline_name}/start"
-        ).raise_for_status()
-        response = requests.get(f"{api_url}/v0/pipelines/{pipeline_name}")
-        resp = response.json()
-        deployment_status = resp["deployment_status"]
-        deployment_desired_status = resp["deployment_desired_status"]
-        while deployment_status != "Running":
-            print("Deployment status: %s" % deployment_status)
-            if (
-                deployment_status == "Stopped"
-                and deployment_desired_status == "Stopped"
-            ):
-                print("FAILED: deployment status is Failed")
-                print(
-                    json.dumps(json.loads(response.content.decode("utf-8")), indent=4)
-                )
-                exit(1)
-            response = requests.get(f"{api_url}/v0/pipelines/{pipeline_name}")
-            deployment_status = response.json()["deployment_status"]
-            time.sleep(1)
+        print("Starting the pipeline...")
+        pipeline.start()
         print("Pipeline started")
+
+    return pipeline
+
+
+def validate_results(pipeline: Pipeline):
+    """Query MySQL source and Feldera tables to show sample rows from each."""
+    mysql_host = os.getenv("MYSQL_HOST", "localhost")
+    mysql_port = int(os.getenv("MYSQL_PORT", "3306"))
+
+    print("\n--- MySQL source: inventory database ---")
+    conn = pymysql.connect(
+        host=mysql_host,
+        port=mysql_port,
+        user="root",
+        password="debezium",
+        database="inventory",
+    )
+    try:
+        with conn.cursor() as cur:
+            for table in ("customers", "products"):
+                print(f"\n-- {table} (5 rows) --")
+                cur.execute(f"SELECT * FROM {table} LIMIT 5")
+                for row in cur.fetchall():
+                    print(row)
+    finally:
+        conn.close()
+
+    print("\n--- Feldera tables (replicated from MySQL via CDC) ---")
+    for table in ("customers", "products"):
+        print(f"\n-- {table} (5 rows) --")
+        # Retry a few times since CDC might still be catching up.
+        for attempt in range(20):
+            try:
+                rows = list(pipeline.query(f"SELECT * FROM {table} LIMIT 5"))
+                if rows:
+                    for row in rows:
+                        print(row)
+                    break
+            except Exception as e:
+                if attempt == 0:
+                    print(f"(query failed: {e}, retrying...)")
+            time.sleep(2)
+        else:
+            print("(no rows replicated within timeout — CDC might still be catching up)")
 
 
 if __name__ == "__main__":

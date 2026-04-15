@@ -1,0 +1,71 @@
+# Self-contained Docker Compose for the TikTok recommender system demo.
+# Includes Feldera, RedPanda (Kafka), and the Rust `tiktok-gen` generator that
+# populates the `interactions` topic with synthetic user/video interaction data.
+#
+# Start infra:  docker compose up -d --build --wait redpanda feldera
+# Start generator (non-blocking, streams events into Kafka while you run the
+# pipeline so you can watch events flow in real time):
+#               docker compose up -d --build tiktok-gen
+# Stop:         docker compose down -v
+#
+# Ordering is enforced by `depends_on`: redpanda → feldera → tiktok-gen.
+# Starting the generator last means Feldera is already up when events begin
+# arriving, so you can observe the pipeline ingest them in the Web UI.
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  feldera:
+    image: images.feldera.com/feldera/pipeline-manager:latest
+    pull_policy: always
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v0/pipelines || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  tiktok-gen:
+    build: ./tiktok-gen
+    depends_on:
+      # redpanda is the actual destination (generator publishes CSV to the
+      # `interactions` Kafka topic). feldera is only here to enforce ordering
+      # so Feldera is already up when events start arriving — giving you time
+      # to open the Web UI and watch the pipeline ingest them live.
+      redpanda:
+        condition: service_healthy
+      feldera:
+        condition: service_healthy
+    # Defaults: 1000 users, 1000 videos, 1,000,000 interactions, historical time
+    # range (~630 days back). Adjust `-I` to change the event count.
+    command:
+      - --historical
+      - --delete-topic-if-exists
+      - "-U"
+      - "1000"
+      - "-V"
+      - "1000"
+      - "-I"
+      - "1000000"
+      - "-B"
+      - "redpanda:9092"
+    restart: "no"
