@@ -47,7 +47,7 @@ If the fetch fails, tell the user the URL is not accessible and ask them to past
 
 ## Step 3: Analyze and generate detection SQL
 
-Before writing any SQL, consult `agentic-guides/shared-analyze/feldera-sql-generator.md` for rules and known pitfalls.
+Before writing any SQL, consult `.claude/guides/shared-analyze/feldera-sql-generator.md` for rules and known pitfalls.
 
 ### 3a — Column audit
 
@@ -95,7 +95,7 @@ Wait for the user to confirm before proceeding.
 - Give each view a 2-sentence description explaining what it detects and why
 - Build only on existing tables/views — do not invent new columns or tables
 - `TUMBLE` for non-overlapping fixed windows (burst/rate detection), `HOP` for overlapping/sliding windows (baseline comparisons), `LAG`/`LEAD` for row-to-row sequences, `JOIN` to relate entities — see `feldera-sql-generator.md` for pitfalls
-- Apply all rules from `agentic-guides/shared-analyze/feldera-sql-generator.md`
+- Apply all rules from `.claude/guides/shared-analyze/feldera-sql-generator.md`
 
 ---
 
@@ -116,7 +116,7 @@ mkdir -p $RUN_DIR
 # write base SQL + new views to $RUN_DIR/program.sql
 ```
 
-Then read and follow `agentic-guides/setup/feldera-redeploy.md`.
+Then read and follow `.claude/guides/setup/feldera-redeploy.md`.
 
 ---
 

@@ -138,7 +138,7 @@ See the pipeline, inspect the tables and views, and browse the data interactivel
 ### Connect to Postgres to explore the data
 
 ```bash
-psql -h localhost -p 6432 -U postgres -d jdbc_test_db
+docker compose -f debezium-jdbc/docker-compose.yml exec psql -h localhost -p 6432 -U postgres -d jdbc_test_db
 ```
 
 Password: `postgres`. Once connected, try to run these commands:

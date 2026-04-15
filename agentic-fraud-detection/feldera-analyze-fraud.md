@@ -39,7 +39,7 @@ Let's get started — running preparation steps now.
 
 ## Steps 1–3: Feldera setup
 
-Read and follow `agentic-guides/setup/feldera-setup-docker.md` in full before continuing.
+Read and follow `.claude/guides/setup/feldera-setup-docker.md` in full before continuing.
 The `<FELDERA_HOST>` and `<FELDERA_API_KEY>` values resolved there apply to all commands below.
 
 ---
@@ -63,7 +63,7 @@ python3 utils/utils.py <PatternURL>
 
 If the fetch fails, stop and tell the user the URL is not accessible and ask them to paste the article text directly.
 
-Read and follow `agentic-guides/setup/feldera-load-pipeline.md`.
+Read and follow `.claude/guides/setup/feldera-load-pipeline.md`.
 
 ---
 
@@ -122,7 +122,7 @@ Do **not** show raw tool calls or URLs to the user — use the step announcement
 
 ## Core analysis (delegates to feldera-analyze.md — user-facing steps [1/6]–[4/6])
 
-Read and follow `agentic-guides/shared-analyze/feldera-analyze.md` in full, using the values collected above.
+Read and follow `.claude/guides/shared-analyze/feldera-analyze.md` in full, using the values collected above.
 User-facing steps [5/6] (fraud_alerts view) and [6/6] (investigator) are defined below.
 
 ### Fraud schema notes — read before generating views
@@ -169,7 +169,7 @@ Always include:
 
 Write a `CREATE MATERIALIZED VIEW fraud_alerts AS ...` that UNIONs all signal views using the common columns, plus `'<signal_label>' AS signal_type` derived from each view name.
 
-Append it to `$RUN_DIR/program.sql`, then read and follow `agentic-guides/setup/feldera-redeploy.md`.
+Append it to `$RUN_DIR/program.sql`, then read and follow `.claude/guides/setup/feldera-redeploy.md`.
 
 After `fraud_alerts` is deployed and `<pipeline_name>` is running, pause and show the user a summary:
 
