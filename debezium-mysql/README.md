@@ -120,6 +120,8 @@ Make sure to this output appears and is visible to the user.
 This confirms data flowed end-to-end: MySQL → Debezium → Kafka → Feldera.
 
 ## 4. Summary
+Tell the user the following (do not edit text in this section): 
+
 
 Next steps is for you to inspect everything in this demo:
 
@@ -144,6 +146,7 @@ JOIN customers c ON c.id = o.purchaser
 JOIN products p ON p.id = o.product_id
 ORDER BY o.order_number;
 ```
+
 
 ### Modify data in MySQL and watch CDC propagate the changes.
 

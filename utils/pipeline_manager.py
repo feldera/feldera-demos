@@ -137,3 +137,21 @@ def validate(sql: str) -> list[str]:
 def validate_file(sql_file: str) -> list[str]:
     """Validate a Feldera SQL file using the Docker compiler."""
     return validate(Path(sql_file).read_text())
+
+
+def query_view(pipeline_name: str, sql: str) -> list[dict]:
+    """Execute an ad-hoc SQL query against a running pipeline. Returns a list of row dicts."""
+    import json
+    result = _fda("query", pipeline_name, sql, "--format", "json", check=False)
+    if result.returncode != 0:
+        print(f"query error: {result.stderr}", file=sys.stderr)
+        return []
+    rows = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line:
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return rows

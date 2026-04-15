@@ -41,7 +41,7 @@ Let's get started — running preparation steps now.
 
 ## Steps 1–3: Feldera setup
 
-Read and follow `agentic-guides/setup/feldera-setup-docker.md` in full before continuing.
+Read and follow `.claude/guides/setup/feldera-setup-docker.md` in full before continuing.
 The `<FELDERA_HOST>` and `<FELDERA_API_KEY>` values resolved there apply to all commands below.
 
 ---
@@ -59,7 +59,7 @@ Load these values automatically:
 - **Pipeline name** — derived from the `ProgramPath` filename stem: `fga`
 - **PatternDescription** — `PatternURL` is a local file path; read it directly with the Read tool (do not use `utils.py`)
 
-Read and follow `agentic-guides/setup/feldera-load-pipeline.md`.
+Read and follow `.claude/guides/setup/feldera-load-pipeline.md`.
 
 ---
 
@@ -120,7 +120,7 @@ Do **not** show raw tool calls or file paths to the user — use the step announ
 
 ## Core analysis (delegates to feldera-analyze.md — user-facing steps [1/6]–[4/6])
 
-Read and follow `agentic-guides/shared-analyze/feldera-analyze.md` in full, using the values collected above.
+Read and follow `.claude/guides/shared-analyze/feldera-analyze.md` in full, using the values collected above.
 User-facing steps [5/6] (access_alerts view) and [6/6] (investigator) are defined below.
 
 ### FGA schema notes — read before generating views
@@ -180,7 +180,7 @@ For each column, check whether it appears in every signal view. Always include:
 
 Write a `CREATE MATERIALIZED VIEW access_alerts AS ...` that UNIONs all signal views using the common columns, plus `'<signal_label>' AS signal_type` derived from each view name. The `metric_value` column must be present in all branches — pad with `CAST(NULL AS BIGINT)` where a view does not have one.
 
-Append it to `$RUN_DIR/program.sql`, then read and follow `agentic-guides/setup/feldera-redeploy.md`.
+Append it to `$RUN_DIR/program.sql`, then read and follow `.claude/guides/setup/feldera-redeploy.md`.
 
 After `access_alerts` is deployed and `<pipeline_name>` is running, pause and show the user a summary:
 
