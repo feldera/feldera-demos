@@ -1,0 +1,26 @@
+# Self-contained Docker Compose for the Hopsworks + Feldera demo.
+# Only Feldera is needed locally — Hopsworks (Kafka, Feature Store, Model
+# Registry, Model Serving) is consumed as a remote SaaS service.
+#
+# Start:  docker compose up -d --wait
+# Stop:   docker compose down -v
+
+services:
+  feldera:
+    image: images.feldera.com/feldera/pipeline-manager:latest
+    pull_policy: always
+    ports:
+      - "8080:8080"
+    # Hopsworks downloads per-project Kafka SSL certs to a local folder that
+    # we pass via `cert_folder=` to hopsworks.login() in run.py
+    # (`hopsworks/hopsworks-secrets/`, gitignored). run.py rewrites the
+    # absolute host paths in the Kafka connector config to /hopsworks-secrets/...
+    # before sending the config to Feldera, so the container resolves the same
+    # files via this bind mount.
+    volumes:
+      - ./hopsworks-secrets:/hopsworks-secrets
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v0/pipelines || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30

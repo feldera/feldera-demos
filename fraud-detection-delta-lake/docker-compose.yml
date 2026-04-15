@@ -1,0 +1,18 @@
+# Self-contained Docker Compose for the Fraud Detection (Delta Lake) demo.
+# Only Feldera is needed — input data is read from public S3 Delta tables
+# and no Kafka/Postgres infrastructure is required.
+#
+# Start:  docker compose up -d --wait
+# Stop:   docker compose down -v
+
+services:
+  feldera:
+    image: images.feldera.com/feldera/pipeline-manager:latest
+    pull_policy: always
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v0/pipelines || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30

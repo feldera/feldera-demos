@@ -1,11 +1,33 @@
-from feldera import PipelineBuilder, FelderaClient
-from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "pandas==2.2.2",
+#     "scikit-learn==1.5.1",
+#     "xgboost==2.1.1",
+#     "feldera",
+# ]
+# ///
+#
+# Real-time fraud detection demo using Feldera + Delta Lake.
+#
+# Start Feldera:
+# > docker compose -f fraud-detection-delta-lake/docker-compose.yml up -d --wait
+#
+# Run this script:
+# > uv run fraud-detection-delta-lake/run.py
+#
+# Clean up:
+# > docker compose -f fraud-detection-delta-lake/docker-compose.yml down -v
+
 import argparse
-from argparse import RawTextHelpFormatter
-import time
 import json
+import time
+from argparse import RawTextHelpFormatter
+
+from feldera import FelderaClient, PipelineBuilder
+from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
 
 DEFAULT_API_URL = "http://localhost:8080"
 
@@ -164,14 +186,17 @@ specifying an AWS access key and region.
         client, name="fraud_detection_training", sql=sql
     ).create_or_replace()
 
-    hfeature = pipeline.listen("feature")
-
     # Process full snapshot of the input tables and compute a dataset
     # with feature vectors for use in model training and testing.
-    pipeline.start()
+    pipeline.start_paused()
+    hfeature = pipeline.listen("feature")
+    pipeline.resume()
     pipeline.wait_for_completion(force_stop=True)
 
     features_pd = hfeature.to_pandas()
+    # DECIMAL columns arrive as Python Decimal objects; cast to float so XGBoost accepts them.
+    for col in features_pd.select_dtypes(include=["object"]).columns:
+        features_pd[col] = features_pd[col].astype(float)
     print(f"Computed {len(features_pd)} feature vectors")
 
     print("Training the model")
@@ -255,12 +280,12 @@ specifying an AWS access key and region.
         client, name="fraud_detection_inference", sql=sql
     ).create_or_replace()
 
-    pipeline.foreach_chunk("feature", lambda df, chunk: inference(trained_model, df))
-
     # Start the pipeline to continuously process the input stream of credit card
     # transactions and output newly computed feature vectors to a Delta table.
 
-    pipeline.start()
+    pipeline.start_paused()
+    pipeline.foreach_chunk("feature", lambda df, chunk: inference(trained_model, df))
+    pipeline.resume()
 
     time.sleep(INFERENCE_TIME_SECONDS)
 
@@ -402,6 +427,10 @@ def inference(trained_model, df):
     print(f"\nReceived {len(df)} feature vectors.")
     if len(df) == 0:
         return
+
+    # DECIMAL columns arrive as Python Decimal objects; cast to float for XGBoost.
+    for col in df.select_dtypes(include=["object"]).columns:
+        df[col] = df[col].astype(float)
 
     feature_cols_inf = list(df.columns.drop("is_fraud"))
     X_inf = df[feature_cols_inf].values  # convert to numpy array

@@ -1,0 +1,66 @@
+# Self-contained Docker Compose for the Debezium Postgres source demo.
+# Includes Feldera, RedPanda (Kafka), Kafka Connect (with Debezium Postgres source connector), and Postgres.
+#
+# Start:  docker compose up -d --build --wait
+# Stop:   docker compose down -v
+
+services:
+  feldera:
+    image: images.feldera.com/feldera/pipeline-manager:latest
+    pull_policy: always
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v0/pipelines || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+    ports:
+      - "19092:19092"
+      - "18081:18081"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kafka-connect:
+    build:
+      context: ../
+      dockerfile: .docker/Dockerfile.kafka-connect
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: "redpanda:9092"
+      GROUP_ID: "1"
+      CONFIG_STORAGE_TOPIC: "inventory.configs"
+      OFFSET_STORAGE_TOPIC: "inventory.offset"
+      STATUS_STORAGE_TOPIC: "inventory.status"
+      LOG_LEVEL: "ERROR"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8083/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  postgres:
+    image: debezium/example-postgres:2.5
+    ports:
+      - "6432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
