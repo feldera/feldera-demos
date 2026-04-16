@@ -2,8 +2,10 @@
 
 Ready-to-run demo. No arguments needed — all config is pre-filled in `fga_init.md`.
 
+Run this slash command in Claude Code from the repository root:
+
 ```
-run fine-grained authorization demo
+/run_fga_demo
 ```
 
 ## What it does
@@ -56,7 +58,7 @@ Defined in `patterns/access.md`:
 | Pattern | Signal | Threshold |
 |---------|--------|-----------|
 | Rapid Enumeration Attack | Distinct parent folders per user / 1h | ≥ 20 (attacker reaches ~500) |
-| Hot Folder Anomaly | Distinct users per folder / 6h | ≥ 25 |
+| Hot Folder Anomaly | Distinct users per folder / 6h | ≥ 40 |
 
 ## Real-time blocking
 
@@ -76,6 +78,7 @@ the user's access is revoked before the next request is processed.
 | File | Purpose |
 |------|---------|
 | `fga_init.md` | Pre-filled demo config |
+| `feldera-analyze-fga.md` | Agentic step-by-step guide — read by the agent when the demo runs |
 | `fga_investigator.py` | Rule-based agent — classifies users, blocks SUSPICIOUS ones |
 | `patterns/access.md` | Access anomaly pattern descriptions |
 | `programs/fga.sql` | Base pipeline SQL (fine-grained authorization + attacker datagen) |
