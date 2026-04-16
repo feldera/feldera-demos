@@ -4,18 +4,6 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://www.feldera.com/images/Logomark-colorwhite.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://www.feldera.com/images/Logomark.svg">
-    <img
-      src="https://www.feldera.com/images/Logomark.svg"
-      alt="Feldera logo"
-      width="96"
-    />
-  </picture>
-</p>
-
-<p align="center">
     <img src="https://readme-typing-svg.demolab.com?font=DM+Sans+Mono&pause=1000&color=C533B9&center=true&vCenter=true&width=435&lines=%24+claude+%2Frun_fraud_demo;%24+claude+%2Frun_fga_demo;%24+claude+%2Frun_fraud_delta_lake;%24+claude+%2Frun_debezium_mysql;%24+claude+run_hopsworks;%24+claude+%2Frun_tiktok;%24+claude+run_debezium_postgres;%24+claude+run_debezium_jdbc" alt="Run the demos" />
 </p>
 
