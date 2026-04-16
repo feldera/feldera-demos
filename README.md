@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://felderacommunity.slack.com/join/shared_invite/zt-222bq930h-dgsu5IEzAihHg8nQt~dHzA" alt="Slack" title="Feldera Pro Tips Discussion & Support">
-    <img src="https://img.shields.io/badge/Slack-1k-79A564?logo=slack&logoColor=white&style=for-the-badge"/></a>
+    <img src="https://img.shields.io/badge/Slack-1k_Online-79A564?logo=slack&logoColor=white&style=for-the-badge"/></a>
   <a href="https://discord.gg/s6t5n9UzHE" alt="Discord" title="Feldera Pro Tips Discussion & Support">
     <img src="https://img.shields.io/discord/1223851723110748251?color=79A564&logo=discord&logoColor=white&style=for-the-badge"/></a>
 </p>
