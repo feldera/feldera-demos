@@ -33,7 +33,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 > If you want to run demos without the assistance of `claude`. Look into the
 > `README.md` of the individual demo folders.
 
-## 🔧 Available Demos
+## 🚀 Available Demos
 
 | Demo | Folder | Claude Code Command | Technologies | Description |
 |------|--------|---------------------|--------------|-------------|
