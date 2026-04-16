@@ -35,7 +35,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 
 ## 🚀 Available Demos
 
-| Demo | Folder | Claude Code Command | Technologies | Description |
+| Demo | Folder | Claude Code Command | Interfaces with | Description |
 |------|--------|---------------------|--------------|-------------|
 | Agentic Fraud Detection | [agentic-fraud-detection/](agentic-fraud-detection/README.md) | `/run_fraud_demo` | AI Agent (Claude) | Claude reads a real card-skimming attack report, maps signals to a live transaction pipeline, generates SQL detection views, and runs a live fraud investigator that classifies alerts in real time. |
 | Agentic Fine-Grained Access | [agentic-fine-grained-access/](agentic-fine-grained-access/README.md) | `/run_fga_demo` | AI Agent (Claude) | Claude generates detection views for rapid enumeration and hot-folder attacks in a shared file system governed by recursive group permissions. A live investigator classifies flagged users and blocks SUSPICIOUS ones by pushing `is_banned=true` — Feldera revokes their access within milliseconds. |
