@@ -1,10 +1,23 @@
-# Feldera Demos
+<!-- markdownlint-disable MD033 MD041 -->
+<p align="center">
+  <h3 align="center">🚀 Feldera Demos ⚡</h3>
+</p>
 
-Demos and examples for the [Feldera](https://feldera.com) streaming SQL platform.
+<p align="center">
+    <img src="https://readme-typing-svg.demolab.com?font=DM+Sans+Mono&pause=1000&color=C533B9&center=true&vCenter=true&width=435&lines=%24+claude+%2Frun_fraud_demo;%24+claude+%2Frun_fga_demo;%24+claude+%2Frun_fraud_delta_lake;%24+claude+%2Frun_debezium_mysql;%24+claude+run_hopsworks;%24+claude+%2Frun_tiktok;%24+claude+run_debezium_postgres;%24+claude+run_debezium_jdbc" alt="Run the demos" />
+</p>
 
-## Agentic Demos Setup
+<p align="center">
+    <a href="https://discord.gg/s6t5n9UzHE" alt="Discord" title="Feldera Pro Tips Discussion & Support">
+      <img src="https://img.shields.io/discord/1223851723110748251?color=7289DA&logo=discord&logoColor=white&style=for-the-badge"/></a>
+  <a href="https://discord.gg/s6t5n9UzHE" alt="Discord" title="Feldera Pro Tips Discussion & Support">
+    <img src="https://img.shields.io/discord/1223851723110748251?color=7289DA&logo=discord&logoColor=white&style=for-the-badge"/></a>
+</p>
+<!-- markdownlint-enable MD033 -->
 
-These demos run inside **Claude Code** — install it first from https://claude.ai/code.
+Demos and examples for the [Feldera](https://feldera.com) incremental compute engine.
+
+All demos can be run inside **Claude Code** — install it first from https://claude.ai/code.
 
 Open this repo in Claude Code:
 
@@ -14,65 +27,47 @@ claude .
 
 Claude handles all steps automatically: Feldera setup, pipeline loading, SQL generation, and live monitoring.
 
-### Prerequisites
+> [!NOTE]
+> If you want to run demos without the assistance of `claude`. Look into the
+> `README.md` of the individual demo folders.
 
-**Feldera instance** — set one in `.env` at the repo root:
+## Available Demos
+
+| Demo | Folder | Claude Code Command | Technologies | Description |
+|------|--------|---------------------|--------------|-------------|
+| Agentic Fraud Detection | [agentic-fraud-detection/](agentic-fraud-detection/README.md) | `/run_fraud_demo` | AI Agent (Claude) | Claude reads a real card-skimming attack report, maps signals to a live transaction pipeline, generates SQL detection views, and runs a live fraud investigator that classifies alerts in real time. |
+| Agentic Fine-Grained Access | [agentic-fine-grained-access/](agentic-fine-grained-access/README.md) | `/run_fga_demo` | AI Agent (Claude) | Claude generates detection views for rapid enumeration and hot-folder attacks in a shared file system governed by recursive group permissions. A live investigator classifies flagged users and blocks SUSPICIOUS ones by pushing `is_banned=true` — Feldera revokes their access within milliseconds. |
+| Fraud Detection (Delta Lake) | [fraud-detection-delta-lake/](fraud-detection-delta-lake/) | `/run_fraud_delta_lake` | Delta Lake, S3, XGBoost | Batch fraud detection reading from Delta Lake tables on S3, with XGBoost model training. |
+| Debezium + Postgres | [debezium-postgres/](debezium-postgres/) | `/run_debezium_postgres` | Postgres, Debezium, Redpanda/Kafka | CDC pipeline ingesting Postgres changes via Debezium and Redpanda/Kafka. |
+| Debezium + MySQL | [debezium-mysql/](debezium-mysql/) | `/run_debezium_mysql` | MySQL, Debezium, Redpanda/Kafka | CDC pipeline ingesting MySQL changes via Debezium and Redpanda/Kafka. |
+| Debezium + JDBC | [debezium-jdbc/](debezium-jdbc/) | `/run_debezium_jdbc` | Postgres, Debezium, Redpanda/Kafka | CDC pipeline sinking Feldera views to Postgres via Redpanda/Kafka and JDBC sink connectors. |
+| Hopsworks Integration | [hopsworks/](hopsworks/) | `/run_hopsworks` | Hopsworks, Kafka, XGBoost | Feature pipeline integration with Hopsworks feature store and Kafka, with XGBoost model training. |
+| TikTok Recommender System | [tik-tok-recommender-system/](tik-tok-recommender-system/) | `/run_tiktok` | Redpanda/Kafka | TikTok-style recommendation system using Feldera and Redpanda/Kafka. |
+
+## Setup
+
+For a smooth experience, the following dependencies should be setup.
+
+#### feldera
+
+**Feldera instance**: You can use feldera using the [free feldera online sandbox](https://try.feldera.com) or a local setup using docker. claude will
 
 | Option | How |
 |--------|-----|
-| Docker (no account needed) | Leave `.env` as-is — Claude pulls and starts the container |
 | Remote instance (e.g. try.feldera.com) | Add `FELDERA_HOST=https://...` and `FELDERA_API_KEY=apikey:...` to `.env` |
+| Docker (no account needed) | Leave `.env` as-is — Claude pulls and starts the container, docker or podman is required to be installed |
 
-**`fda` CLI (v0.282.0):**
+> Note that demos which rely on docker compose scripts to setup 3rd party services (postgres, mysql, kafka/redpanda) will only work with the local docker form factor.
 
-```bash
-cargo install fda --version 0.282.0
-```
+#### fda CLI
 
----
-
-## Demos
-
-| Demo | Folder | Claude Code command | Description |
-|------|--------|---------------------|-------------|
-| Agentic Fraud Detection | [agentic-fraud-detection/](agentic-fraud-detection/README.md) | `/run_fraud_demo` | Claude reads a real card-skimming attack report, maps signals to a live transaction pipeline, generates SQL detection views, and runs a live fraud investigator that classifies alerts in real time. |
-| Agentic Fine-Grained Access | [agentic-fine-grained-access/](agentic-fine-grained-access/README.md) | `/run_fga_demo` | Claude generates detection views for rapid enumeration and hot-folder attacks in a shared file system governed by recursive group permissions. A live investigator classifies flagged users and blocks SUSPICIOUS ones by pushing `is_banned=true` — Feldera revokes their access within milliseconds. |
-| Fraud Detection (Delta Lake) | [fraud-detection-delta-lake/](fraud-detection-delta-lake/) | `/run_fraud_delta_lake` | Batch fraud detection reading from a Delta Lake table. |
-| Debezium + Postgres | [debezium-postgres/](debezium-postgres/) | `/run_debezium_postgres` | CDC pipeline ingesting Postgres changes via Debezium. |
-| Debezium + MySQL | [debezium-mysql/](debezium-mysql/) | `/run_debezium_mysql` | CDC pipeline ingesting MySQL changes via Debezium. |
-| Debezium + JDBC | [debezium-jdbc/](debezium-jdbc/) | `/run_debezium_jdbc` | CDC pipeline ingesting via Debezium JDBC connector. |
-| Hopsworks Integration | [hopsworks/](hopsworks/) | `/run_hopsworks` | Feature pipeline integration with Hopsworks feature store. |
-| TikTok Recommender System | [tik-tok-recommender-system/](tik-tok-recommender-system/) | `/run_tiktok` | TikTok-style recommendation system using Feldera + Hopsworks. |
-
-## Structure
+Some demos use the fda CLI to interact with feldera.
+You can find [instructions to install it in our docs](https://docs.feldera.com/interface/cli#quick-install).
 
 ```
-feldera-demos/
-├── CLAUDE.md                        # Claude Code entry point
-├── .env
-├── utils/                           # Shared Python utilities
-│   ├── pipeline_manager.py          # REST API wrapper for pipeline lifecycle
-│   └── utils.py                     # URL fetcher with browser User-Agent
-├── .claude/guides/                  # Claude Code guides (internal)
-│   ├── setup/
-│   │   ├── feldera-setup-docker.md  # Feldera setup: Docker or remote instance
-│   │   ├── feldera-load-pipeline.md # Create or reset a pipeline to base SQL
-│   │   └── feldera-redeploy.md      # Validate + stop + set program + start + poll
-│   └── shared-analyze/
-│       ├── feldera-analyze.md       # Core detection view engine
-│       └── feldera-sql-generator.md # SQL generation rules and pitfalls
-├── agentic-fraud-detection/         # Fraud detection demo
-│   ├── programs/                    # Base pipeline SQL
-│   ├── patterns/                    # Embedded attack pattern
-│   └── fraud_investigator.py        # Live rule-based investigator
-├── agentic-fine-grained-access/     # Fine-grained access control demo
-│   ├── programs/                    # Base pipeline SQL
-│   ├── patterns/                    # Access anomaly pattern descriptions
-│   └── fga_investigator.py          # Live investigator with real-time blocking
-├── fraud-detection-delta-lake/          # Batch fraud detection from Delta Lake
-├── debezium-postgres/                   # CDC pipeline: Postgres via Debezium
-├── debezium-mysql/                      # CDC pipeline: MySQL via Debezium
-├── debezium-jdbc/                       # CDC pipeline: JDBC via Debezium
-├── hopsworks/                           # Hopsworks feature store integration
-└── tik-tok-recommender-system/          # TikTok-style recommender with Hopsworks
+curl -fsSL https://feldera.com/install-fda | bash
 ```
+
+#### uv
+
+Some demos use pythons scripts and the feldera python SDK to interact with feldera. For this a recent installation of [uv](https://docs.astral.sh/uv/getting-started/installation/) is necessary.
