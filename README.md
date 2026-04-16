@@ -1,6 +1,18 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <h3 align="center">🚀 Feldera Demos ⚡</h3>
+  <h3 align="center">Feldera Demos</h3>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://www.feldera.com/images/Logomark-colorwhite.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://www.feldera.com/images/Logomark.svg">
+    <img
+      src="https://www.feldera.com/images/Logomark.svg"
+      alt="Feldera logo"
+      width="96"
+    />
+  </picture>
 </p>
 
 <p align="center">
@@ -8,12 +20,14 @@
 </p>
 
 <p align="center">
-    <a href="https://discord.gg/s6t5n9UzHE" alt="Discord" title="Feldera Pro Tips Discussion & Support">
-      <img src="https://img.shields.io/discord/1223851723110748251?color=7289DA&logo=discord&logoColor=white&style=for-the-badge"/></a>
+  <a href="https://felderacommunity.slack.com/join/shared_invite/zt-222bq930h-dgsu5IEzAihHg8nQt~dHzA" alt="Slack" title="Feldera Pro Tips Discussion & Support">
+    <img src="https://img.shields.io/badge/Slack-1k-79A564?logo=slack&logoColor=white&style=for-the-badge"/></a>
   <a href="https://discord.gg/s6t5n9UzHE" alt="Discord" title="Feldera Pro Tips Discussion & Support">
-    <img src="https://img.shields.io/discord/1223851723110748251?color=7289DA&logo=discord&logoColor=white&style=for-the-badge"/></a>
+    <img src="https://img.shields.io/discord/1223851723110748251?color=79A564&logo=discord&logoColor=white&style=for-the-badge"/></a>
 </p>
 <!-- markdownlint-enable MD033 -->
+
+## ⚡ Quick setup
 
 Demos and examples for the [Feldera](https://feldera.com) incremental compute engine.
 
@@ -31,7 +45,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 > If you want to run demos without the assistance of `claude`. Look into the
 > `README.md` of the individual demo folders.
 
-## Available Demos
+## 🔧 Available Demos
 
 | Demo | Folder | Claude Code Command | Technologies | Description |
 |------|--------|---------------------|--------------|-------------|
@@ -44,7 +58,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 | Hopsworks Integration | [hopsworks/](hopsworks/) | `/run_hopsworks` | Hopsworks, Kafka, XGBoost | Feature pipeline integration with Hopsworks feature store and Kafka, with XGBoost model training. |
 | TikTok Recommender System | [tik-tok-recommender-system/](tik-tok-recommender-system/) | `/run_tiktok` | Redpanda/Kafka | TikTok-style recommendation system using Feldera and Redpanda/Kafka. |
 
-## Setup
+## ⚙️ Pre-requisites
 
 For a smooth experience, the following dependencies should be setup.
 
