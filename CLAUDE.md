@@ -12,6 +12,7 @@ Available demos — run via slash command or natural language:
 | Fraud Detection (Delta Lake) | `/run_fraud_delta_lake` | `run fraud delta lake demo` |
 | Hopsworks + Feldera | `/run_hopsworks` | `run hopsworks demo` |
 | TikTok Recommender System | `/run_tiktok` | `run tiktok recommender demo` |
+| Cost Optimization | `/run_cost_optimization` | `run cost optimization demo` |
 
 When the user runs `/run_fraud_demo` or asks to run fraud detection, **read** `agentic-fraud-detection/feldera-analyze-fraud.md`
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
@@ -35,4 +36,7 @@ When the user runs `/run_hopsworks` or asks to run the Hopsworks demo, **read** 
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
 
 When the user runs `/run_tiktok` or asks to run the TikTok recommender demo, **read** `tik-tok-recommender-system/README.md`
+and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
+
+When the user runs `/run_cost_optimization` or asks to run the cost optimization demo, **read** `cost-optimization/README.md`
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.

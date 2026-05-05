@@ -4,7 +4,7 @@
 </p>
 
 <p align="center">
-    <img src="https://readme-typing-svg.demolab.com?font=DM+Sans+Mono&pause=1000&color=C533B9&center=true&vCenter=true&width=435&lines=%24+claude+%2Frun_fraud_demo;%24+claude+%2Frun_fga_demo;%24+claude+%2Frun_fraud_delta_lake;%24+claude+%2Frun_debezium_mysql;%24+claude+run_hopsworks;%24+claude+%2Frun_tiktok;%24+claude+run_debezium_postgres;%24+claude+run_debezium_jdbc" alt="Run the demos" />
+    <img src="https://readme-typing-svg.demolab.com?font=DM+Sans+Mono&pause=1000&color=C533B9&center=true&vCenter=true&width=435&lines=%24+claude+%2Frun_fraud_demo;%24+claude+%2Frun_fga_demo;%24+claude+%2Frun_fraud_delta_lake;%24+claude+%2Frun_debezium_mysql;%24+claude+run_hopsworks;%24+claude+%2Frun_tiktok;%24+claude+run_debezium_postgres;%24+claude+run_debezium_jdbc;%24+claude+%2Frun_cost_optimization" alt="Run the demos" />
 </p>
 
 <p align="center">
@@ -45,6 +45,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 | Debezium + JDBC | [debezium-jdbc/](debezium-jdbc/) | `/run_debezium_jdbc` | Postgres, Debezium, Redpanda/Kafka | CDC pipeline sinking Feldera views to Postgres via Redpanda/Kafka and JDBC sink connectors. |
 | Hopsworks Integration | [hopsworks/](hopsworks/) | `/run_hopsworks` | Hopsworks, Kafka, XGBoost | Feature pipeline integration with Hopsworks feature store and Kafka, with XGBoost model training. |
 | TikTok Recommender System | [tik-tok-recommender-system/](tik-tok-recommender-system/) | `/run_tiktok` | Redpanda/Kafka | TikTok-style recommendation system using Feldera and Redpanda/Kafka. |
+| Cost Optimization | [cost-optimization/](cost-optimization/) | `/run_cost_optimization` | TPC-H parquet | Shrink a pipeline's CPU/memory after backfill: start big, checkpoint, restart small at steady-state cost. |
 
 ## ⚙️ Pre-requisites
 
