@@ -1,0 +1,1 @@
+SELECT n_alerts FROM fraud_alert_count_full
