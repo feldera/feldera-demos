@@ -4,7 +4,7 @@ Every second matters in card fraud. A stolen card number goes on sale in undergr
 
 The response is to flag suspicious transactions as they arrive and route them for review. But review has a cost. Whether a human analyst looks at a case or an LLM makes the call, every alert you generate is a unit of work — and false positives are wasted spend.
 
-**The numbers add up fast.** A useful Claude Sonnet triage call costs roughly $0.002 — a single flagged transaction is not enough context for a good decision, so the prompt includes the full picture: the customer profile (home location, account age, spend patterns), the last 10–20 transactions as history, the flagged transaction itself, and the signal that triggered it. That adds up to about 1,500 input tokens. Add 100 output tokens for the decision and reason, and each call costs approximately $0.002 at Claude Sonnet pricing ($0.80/M input, $4.00/M output).
+**The numbers add up fast.** A useful Claude Sonnet triage call costs roughly $0.002 — a single flagged transaction is not enough context for a good decision, so the prompt includes the full picture: the customer profile, the last 10–20 transactions as history, the flagged transaction itself, and the signal that triggered it. That adds up to about 1,500 input tokens. Add 100 output tokens for the decision and reason, and each call costs approximately $0.002 at Claude Sonnet pricing.
 
 Now run the math at two common transaction volumes:
 
@@ -20,15 +20,13 @@ You want the alert set to be small and confident.
 
 **This is the core tension.** You want queries complex enough to be accurate, and you want them to run fast on a live stream.
 
-Three strategies compete here:
+Two strategies compete here:
 
-- **CH-full** runs the full, accurate detection query on every batch — but it scans all history every time. Query time grows O(N) as history accumulates. Accurate, but too slow to keep up with a real-time stream.
+- **ClickHouse** runs the full, accurate detection query on every batch — but it scans all history every time. Query time grows O(N) as history accumulates. Accurate, but latency blows up as history grows.
 
-- **CH-light** uses ClickHouse Materialized Views to maintain pre-aggregated counts incrementally, so each batch costs O(delta). Fast — but ClickHouse MVs can only see the incoming row at refresh time, not other tables. The displacement signal needs to join against customer home addresses; without that join, CH-light falls back to flagging any transaction with a non-zero shipping address. The result is a larger alert set with more false positives. Every extra false positive is a wasted review call.
+- **Feldera** maintains the full computation graph — cross-table joins included — incrementally over each delta. The same precise queries that ClickHouse runs in O(N) now run in O(delta), and the final count query is O(1) against a precomputed materialized view. Fast and accurate.
 
-- **Feldera** maintains the full computation graph — cross-table joins included — incrementally over each delta. The same precise queries that CH-full runs in O(N) now run in O(delta), and the final count query is O(1) against a precomputed single-row view. Fast and accurate: the alert set stays small, confident, and cheap to review downstream.
-
-This benchmark measures both dimensions — latency and alert count — across all three engines on the same transaction stream.
+This benchmark measures latency across both engines on the same transaction stream, at the same accuracy.
 
 ---
 
@@ -38,98 +36,68 @@ Four patterns show up consistently in payment fraud. Each one tells a specific s
 
 ### Gift card burst — 30-day and 45-day windows
 
-A stolen card rarely gets maxed out with a single large purchase — that triggers immediate block. Instead, fraud rings buy a steady stream of gift cards: $50 here, $100 there, sometimes a dozen transactions a day across different merchants. Gift cards are the preferred exit because they don't require shipping, can't be charged back once activated, and are resold instantly on secondary markets.
+A stolen card rarely gets maxed out with a single large purchase — that triggers an immediate block. Instead, fraud rings buy a steady stream of gift cards: $50 here, $100 there, sometimes a dozen transactions a day. Gift cards are the preferred exit because they don't require shipping, can't be charged back once activated, and are resold instantly on secondary markets.
 
-The signal is a count threshold: **N or more gift card transactions within a 30-day window** (or 45 days for slower-moving rings). A legitimate cardholder might buy a handful of gift cards around the holidays. A compromised card hits that threshold in days.
+The signal: **N or more gift card transactions within a 30-day sliding window** (or 45 days for slower-moving rings).
 
 ### Spend velocity — 7-day window
 
-Fraud rings don't just buy gift cards. Once they have working card credentials, they test and exhaust them across many categories — electronics, travel, subscription services. The velocity pattern captures this: **N or more transactions of any kind within 7 days**. Normal cardholders have a rhythm. Compromised cards don't.
+Fraud rings don't just buy gift cards. Once they have working credentials they test and exhaust them across many categories. The velocity pattern captures this: **N or more transactions of any kind within a 7-day sliding window**. Normal cardholders have a rhythm. Compromised cards don't.
 
 ### Repeated displacement
 
-This signal catches a different threat: card-present skimming. A skimmer clones your physical card and uses it at locations far from where you live. The signal: **N or more transactions more than 0.5 degrees (roughly 35 miles) from the cardholder's home address within a 3-day window**.
+This signal catches a different threat: card-present skimming. A skimmer clones your physical card and uses it far from where you live. The signal: **N or more transactions more than 20° from the cardholder's home address within a 3-day sliding window**.
 
-This one is computationally interesting. To check displacement, you need to JOIN the transaction against the customer table to get the home address. A naive materialized view can't do that join at insert time — it can only see the incoming row, not the customer record. So it falls back to an approximation: flag any transaction that has a non-zero shipping address. This produces false positives whenever someone ships a gift to another city. Exact detection requires joining the customer table on every incoming transaction — which is exactly what Feldera's incremental view maintenance handles natively.
+This is computationally interesting. Checking displacement requires joining each transaction against the customer table to get the home address. ClickHouse and Feldera both perform this join exactly — it's what makes the detection precise.
 
 ---
 
 ## Why This Is Hard to Do Fast
 
-The naive approach runs a window query over the full transaction history on every new batch. That query is O(N) — it grows linearly with the number of rows. On a small table it's instant. On six months of history across millions of cardholders, it takes seconds per batch.
+The naive approach runs a window query over the full transaction history on every new batch. That query is O(N) — it grows linearly with the number of rows. On a small table it's instant. On months of history across millions of cardholders, it takes seconds per batch.
 
-The common fix is a materialized view: pre-aggregate the data into buckets and update the buckets incrementally as new rows arrive. ClickHouse does this with `SummingMergeTree` materialized views. The problem is that ClickHouse MVs fire at INSERT time, in isolation — they can't join other tables during refresh. That's the limitation that forces the displacement signal to approximate.
-
-Feldera takes a different approach. It maintains the full computation graph incrementally — including cross-table joins. When a new transaction arrives, Feldera propagates only the delta through every view that depends on it: the distance join, the windowed aggregates, the alert counts. The query time is O(delta), and the final count query hits a single precomputed row in O(1) regardless of history size.
+Feldera takes a different approach. It maintains the full computation graph incrementally — including cross-table joins and true sliding windows. When a new transaction arrives, Feldera propagates only the delta through every view that depends on it: the distance join, the windowed aggregates, the alert counts. The refresh time is O(delta), and the final count query hits a single precomputed row in O(1) regardless of history size.
 
 ---
 
-## The Three Engines
+## The Two Engines
 
-### CH-full — ClickHouse full recompute
+### ClickHouse — full recompute
 
 New rows are INSERTed, then a full window query scans all history on every batch.
 
-- Detects all 4 signals with exact sliding-window semantics
-- Query time grows **O(N)** with total history
-
-### CH-light — ClickHouse with Materialized Views
-
-Four `SummingMergeTree` MVs maintain pre-aggregated counts. Queries read from the MVs, so detection latency is O(delta) — but with two accuracy compromises:
-
-1. **Window alignment**: MVs use epoch-aligned buckets, not sliding windows. A burst that straddles a bucket boundary can be missed.
-2. **No distance check**: The displacement signal can't join the customer table at MV refresh time, so it flags any transaction with non-zero shipping coordinates — a worst-case over-approximation that inflates false positives.
-
-Both CH engines use the same thresholds. Because CH-light's approximations over-count, it flags more cards at identical settings — the accuracy demo makes this visible.
-
-- Detects all 4 signals — but `repeated_displacement` is approximate
-- Query time: **O(delta)** — reads pre-aggregated MVs
+- Detects all 4 signals with exact true sliding-window semantics
+- Query time grows **O(N)** with total history size
 
 ### Feldera — Incremental View Maintenance
 
-Each batch is wrapped in a transaction: push rows → commit. On commit, Feldera incrementally updates the full computation graph — cross-table joins included — processing only the new delta. After commit, `SELECT n_alerts FROM fraud_alert_count` reads a single precomputed count.
+Each batch is wrapped in a transaction: push rows → commit. On commit, Feldera incrementally updates the full computation graph — cross-table joins included — processing only the new delta. After commit, `SELECT COUNT(*) FROM fraud_alert_details` reads a single precomputed materialized view.
 
-- Detects all 4 signals with exact semantics including distance check
+- Detects all 4 signals with exact true sliding-window semantics including distance check
 - Refresh time: **O(delta)** — IVM over new rows only
-- Query time: **O(1)** — reads a precomputed single-row count
+- Query time: **O(1)** — reads a precomputed materialized view
 
----
-
-## Signal accuracy comparison
-
-| Signal | CH-full | CH-light | Feldera |
-|--------|---------|----------|---------|
-| `gift_card_burst_30d` | exact sliding window | epoch bucket (may miss cross-boundary bursts) | epoch bucket (matches CH-full) |
-| `gift_card_burst_45d` | exact sliding window | epoch bucket | epoch bucket (matches CH-full) |
-| `spend_velocity_7d` | exact sliding window | epoch bucket | epoch bucket (matches CH-full) |
-| `repeated_displacement` | exact distance JOIN | no distance check — over-approximation | exact distance JOIN |
+Both engines produce **identical alert counts** — this benchmark measures speed, not accuracy tradeoffs.
 
 ---
 
 ## Fraud signal definitions
 
-| Signal | Definition |
-|--------|-----------|
-| `gift_card_burst_30d` | N+ gift card transactions in any 30-day sliding window |
-| `gift_card_burst_45d` | N+ gift card transactions in any 45-day sliding window |
-| `spend_velocity_7d` | N+ transactions (any category) in any 7-day sliding window |
-| `repeated_displacement` | N+ transactions > 0.5° from home address in any 3-day window |
+| Signal | Definition | Window |
+|--------|-----------|--------|
+| `gift_card_burst_30d` | N+ gift card transactions | 30-day sliding |
+| `gift_card_burst_45d` | N+ gift card transactions | 45-day sliding |
+| `spend_velocity_7d` | N+ transactions (any category) | 7-day sliding |
+| `repeated_displacement` | N+ transactions > 20° from home address | 3-day sliding |
 
-Thresholds scale with dataset size (see `THRESHOLD_PROFILES` in `constants.py`):
+Thresholds are defined in `constants.py` and injected as SQL scalar functions at setup time:
 
-| Scale | gb30 | gb45 | sv7 | disp |
-|-------|------|------|-----|------|
-| `0.1x` | 7 | 8 | 10 | 7 |
-| `1x` | 14 | 16 | 18 | 13 |
-| `10x` | 14 | 16 | 18 | 13 |
-
----
-
-## Recency filter
-
-All three engines apply a recency filter: only cards whose most recent transaction falls within **30 minutes** of the global dataset max timestamp are counted. This ensures per-step alert counts reflect currently-active fraud rather than the full cumulative history.
-
-The **representative transaction** for each flagged card is its most recent transaction (`MAX(ts)` per card). CH-full and Feldera both use this for the recency join.
+| Constant | Value | Signal |
+|----------|-------|--------|
+| `GIFT_BURST_30D_THRESHOLD` | 20 | `gift_card_burst_30d` |
+| `GIFT_BURST_45D_THRESHOLD` | 20 | `gift_card_burst_45d` |
+| `SPEND_VELOCITY_7D_THRESHOLD` | 20 | `spend_velocity_7d` |
+| `DISPLACEMENT_THRESHOLD` | 10 | `repeated_displacement` |
 
 ---
 
@@ -137,14 +105,14 @@ The **representative transaction** for each flagged card is its most recent tran
 
 Each step is measured in three phases:
 
-| Column | CH-full / CH-light | Feldera |
-|--------|-------------------|---------|
-| `ins` | INSERT rows into ClickHouse | push rows inside `start_transaction` / before `commit_transaction` |
-| `ref` | — (MV update is inside `ins`) | IVM: incremental view maintenance triggered by commit |
-| `qry` | `SELECT n_alerts FROM fraud_alert_count_*` — full recompute | `SELECT n_alerts FROM fraud_alert_count` — reads precomputed single row |
+| Column | ClickHouse | Feldera |
+|--------|-----------|---------|
+| `ins` | INSERT rows | push rows inside transaction |
+| `ref` | — (scan happens at query time) | IVM: incremental view maintenance on commit |
+| `qry` | full O(N) scan over all history | O(1) read from `fraud_alert_details` |
 | **total** | `ins + qry` | `ins + ref + qry` |
 
-`total` is the right comparison metric. For CH, all computation happens at query time. For Feldera, computation happens at commit (`ref`) and `qry` is O(1). Both represent end-to-end latency from "data pushed" to "results available".
+`total` is the right comparison metric. For ClickHouse, all computation happens at query time and grows with history. For Feldera, computation happens at commit (`ref`) and `qry` is always O(1).
 
 ---
 
@@ -152,29 +120,47 @@ Each step is measured in three phases:
 
 | Mode | Engines | Story |
 |------|---------|-------|
-| `full` (default) | CH-full, CH-light, Feldera | All three side by side |
-| `latency` | CH-full, Feldera | Speed: O(N) scan vs O(delta) IVM |
-| `accuracy` | CH-light, Feldera | Completeness: approximate MVs vs exact IVM |
+| `latency` / `full` | ClickHouse, Feldera | O(N) scan vs O(delta) IVM |
+
+---
+
+## SQL architecture
+
+Both engines share the same logical pipeline structure:
+
+```
+TRANSACTION_WITH_DISTANCE        — enrich each transaction with Manhattan distance to home
+    ↓
+TRANSACTION_WITH_AGGREGATES      — compute all rolling window aggregates once (named WINDOW clauses)
+    ↓
+flagged_gift_card_burst_30d      — WHERE gift_count_30day >= GB30()
+flagged_gift_card_burst_45d      — WHERE gift_count_45day >= GB45()
+flagged_spend_velocity_7d        — WHERE txn_count_7day   >= SV7()
+flagged_repeated_displacement    — WHERE disp_count_3day  >= DISP()
+    ↓
+fraud_alerts                     — UNION ALL of all four signal streams
+    ↓
+best_per_card                    — highest-priority signal per card
+    ↓
+fraud_alert_details              — final enriched output (one row per flagged card)
+```
+
+Threshold and priority functions (`GB30()`, `PRIO_GB30()`, etc.) are generated from `constants.py` at setup time — no hardcoded values in SQL files.
+
+**ClickHouse note**: `WINDOW RANGE` bounds require literal integer seconds (`604800` for 7 days). ClickHouse lambda UDFs work in `WHERE`/`SELECT` but not in `RANGE` bounds.
 
 ---
 
 ## SQL file layout
 
-| File | Purpose |
-|------|---------|
-| `setup_clickhouse.sql` | DDL: `customers` and `transactions` tables |
-| `setup_clickhouse_mv.sql` | DDL: `SummingMergeTree` MV backing tables + MVs |
-| `ch_full_head.sql` | CH-full view DDL — RANGE signal CTEs + `best_txn` with distance JOIN |
-| `ch_light_head.sql` | CH-light view DDL — MV signal CTEs + `best_txn` (no distance check) |
-| `ch_view_tail.sql` | Shared view tail — `best_signals` CTE + final SELECT with 30-min recency filter |
-| `ch_full_query.sql` | `SELECT n_alerts FROM fraud_alert_count_full` |
-| `ch_light_query.sql` | `SELECT n_alerts FROM fraud_alert_count_light` |
-| `replay_at_feldera.sql` | Full Feldera pipeline — tables, epoch GROUP BY signal views, alert details |
-| `feldera_query.sql` | Count distinct flagged cards within 30-min recency window |
-
-The CH view DDL is split into a per-engine head and a shared tail. Python concatenates them at setup time, substituting threshold placeholders (`__GB30__`, `__GB45__`, `__SV7__`, `__DISP__`).
-
-In `replay_at_feldera.sql`, most views are plain `CREATE VIEW`. Three are materialized: `fraud_alert_details` (the enriched per-card alert table), `max_transaction_ts` (single-row max for O(1) recency check), and `fraud_alert_count` is removed — the count is computed at query time in `feldera_query.sql` by joining `fraud_alert_details` against `max_transaction_ts` with the 30-min filter.
+| File | Engine | Purpose |
+|------|--------|---------|
+| `clickhouse_tables.sql` | ClickHouse | `customers` and `transactions` table DDL |
+| `clickhouse_views.sql` | ClickHouse | `fraud_signals_full` view with full pipeline |
+| `clickhouse_query.sql` | ClickHouse | `SELECT count(DISTINCT cc_num) FROM fraud_signals_full` |
+| `feldera_tables.sql` | Feldera | `CUSTOMER` and `TRANSACTION` table DDL |
+| `feldera_views.sql` | Feldera | Full pipeline as incremental views + `fraud_alert_details` materialized view |
+| `feldera_query.sql` | Feldera | `SELECT COUNT(*) FROM fraud_alert_details` |
 
 ---
 
@@ -184,7 +170,7 @@ In `replay_at_feldera.sql`, most views are plain `CREATE VIEW`. Three are materi
 pip install "feldera>=0.298" clickhouse-connect matplotlib python-dotenv requests
 ```
 
-Start both services (existing Docker containers):
+Start both services:
 
 ```bash
 docker start clickhouse-server
@@ -202,16 +188,12 @@ docker run -d --name feldera -p 8080:8080 \
   images.feldera.com/feldera/pipeline-manager:latest
 ```
 
-No API key needed for local Docker.
-
 ---
 
 ## Quick start — mock mode (no DB needed)
 
 ```bash
 python3 demo_runner.py --mock
-python3 demo_runner.py --mock --mode latency   # speed story
-python3 demo_runner.py --mock --mode accuracy  # completeness story
 python3 demo_runner.py --mock --steps 10 --output results.txt
 ```
 
@@ -225,21 +207,19 @@ python3 demo_runner.py --mock --steps 10 --output results.txt
 |-------|-------------|-----|
 | `data/0.1x` | ~600K rows | Quick smoke test |
 | `data/1x` | ~6M rows | Standard demo |
-| `data/10x` | ~60M rows | Maximum latency gap |
+| `data/10x` | ~60M rows | Large history |
+| `data/100x` | ~600M rows | Maximum latency gap |
 
 ### Run
 
 ```bash
-# Smoke test: all three engines, 0.1x data
+# Smoke test (0.1x data, both engines)
 python3 demo_runner.py --data-dir data/0.1x --interval 0
 
-# Standard benchmark with output file (1x data)
-python3 demo_runner.py --data-dir data/1x --interval 0 --output results.txt
+# Standard benchmark with preloaded history
+python3 demo_runner.py --data-dir data/1x --preload-rows 3000000 --steps 500 --batch-rows 2000 --interval 0 --output results.txt
 
-# Max latency gap
-python3 demo_runner.py --data-dir data/10x --interval 0
-
-# Plot results from saved output
+# Plot results
 python3 plot_results.py results.txt
 ```
 
@@ -250,39 +230,41 @@ python3 plot_results.py results.txt
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--mock` | off | Simulate queries; no DB needed |
-| `--output` | none | Save summary table to file |
-| `--mode` | `full` | `full` \| `latency` \| `accuracy` |
+| `--output` | none | Save summary to file |
+| `--mode` | `full` | `full` \| `latency` (both run same engines) |
 | `--data-dir` | `data/0.1x` | Dataset scale directory |
-| `--steps` | `50` | Number of streaming batches |
-| `--batch-minutes` | none | Each batch covers N minutes of synthetic time (smaller batches = faster IVM per step) |
+| `--steps` | `50` | Number of streaming batches (cache layout) |
+| `--max-steps` | none | Stop early after N steps |
+| `--batch-rows` | none | Fix each batch to exactly N rows |
+| `--preload-rows` | `0` | Rows of history loaded before streaming |
 | `--interval` | `10` | Seconds between batches |
-| `--preload-days` | `0` | Days of history loaded before streaming starts |
-| `--no-ch` | off | Run Feldera only |
-| `--no-feldera` | off | Run ClickHouse engines only |
-| `--ch-host` | `localhost` | ClickHouse host |
-| `--ch-port` | `8123` | ClickHouse HTTP port |
-| `--ch-database` | `fraud_detection` | ClickHouse database name |
+| `--sequential` | off | Run engines one at a time per step (clean isolated timing) |
+| `--no-clickhouse` | off | Run Feldera only |
+| `--no-feldera` | off | Run ClickHouse only |
+| `--clickhouse-host` | `localhost` | ClickHouse host |
+| `--clickhouse-port` | `8123` | ClickHouse HTTP port |
+| `--clickhouse-database` | `fraud_detection` | ClickHouse database name |
 | `--api-url` | `http://localhost:8080` | Feldera host URL |
 | `--api-key` | none | Feldera API key (not needed for local Docker) |
 
 ---
 
-## Correctness tests
+## Sweep runner
 
-`tests/test_equivalence.py` verifies two properties after every streaming batch:
-
-1. **CH-full ≅ Feldera** — both use epoch-aligned GROUP BY with exact distance checks and must flag exactly the same set of cards.
-2. **CH-full ⊆ CH-light** — CH-light's over-approximation can only add false positives, never drop a card that CH-full flags.
+`run_experiments.py` sweeps across combinations of preload sizes, step counts, and engines:
 
 ```bash
-# CH-full vs CH-light only (fast, no Feldera IVM)
-python3 tests/test_equivalence.py --data-dir data/0.1x --steps 10 --no-feldera
+# Default sweep
+python3 run_experiments.py
 
-# All three engines, small 5-minute batches (keeps IVM cost low per step)
-python3 tests/test_equivalence.py --data-dir data/0.1x --batch-minutes 5 --steps 20
+# Custom sweep
+python3 run_experiments.py --preload-rows 0 3000000 --steps 500 --engines feldera clickhouse
+
+# Single run
+python3 run_experiments.py --preload-rows 3000000 --steps 500 --batch-rows 2000 --engines all --data-dir data/100x
 ```
 
-Use `--batch-minutes 5` when testing with Feldera — 5-minute windows produce small batches (~35 rows each) so the IVM commit completes quickly per step.
+Engine presets: `clickhouse`, `feldera`, `latency` (both), `all` (both).
 
 ---
 
@@ -291,24 +273,22 @@ Use `--batch-minutes 5` when testing with Feldera — 5-minute windows produce s
 After the run, a per-step summary table prints to the terminal:
 
 ```
-  PRELOAD  CH-full: 205ms   Feldera: 14.8s (push=174ms, ivm=1.0s)
+  PRELOAD  ClickHouse: 205ms   Feldera: 14.8s (push=174ms, ivm=1.0s)
   STEP LATENCY SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   step  engine        ins  ref+qry      qry    total     n
 ──────────────────────────────────────────────────────────
-     1  CH-full     158ms    46ms         —    204ms    45
-        CH-light    158ms    32ms         —    190ms     0
-        Feldera     281ms  1010ms        2ms  1293ms   101
+     1  ClickHouse  158ms    46ms         —    204ms    45
+        Feldera     281ms  1010ms        2ms  1293ms    45
 ──────────────────────────────────────────────────────────
    avg                ins  ref+qry      qry    total
 ──────────────────────────────────────────────────────────
-        CH-full     158ms   120ms         —    279ms
-        CH-light    158ms   112ms         —    270ms
+        ClickHouse  158ms   120ms         —    279ms
         Feldera     283ms  1010ms        2ms  1296ms
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 - `ins`: time to push the batch into the engine
-- `ref+qry`: for CH — full recompute at query time; for Feldera — `ref` = IVM commit time, `qry` = O(1) count read
-- `n`: new fraud alerts detected this step
+- `ref+qry`: for ClickHouse — full O(N) recompute at query time; for Feldera — `ref` = IVM commit, `qry` = O(1) count read
+- `n`: new fraud alerts detected this step (identical for both engines)
 - `total`: end-to-end latency — the primary comparison metric
