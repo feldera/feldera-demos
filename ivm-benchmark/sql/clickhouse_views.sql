@@ -78,6 +78,7 @@ fraud_alerts AS (
     UNION ALL SELECT cc_num, window_start AS ts, total_spend AS amt, signal_type, priority FROM flagged_sv7
     UNION ALL SELECT cc_num, window_start AS ts, total_amt   AS amt, signal_type, priority FROM flagged_disp
 ),
+-- suspicion score per card: sum of priorities across all fired signals
 best_per_card AS (
     SELECT cc_num,
            sum(priority) AS total_priority

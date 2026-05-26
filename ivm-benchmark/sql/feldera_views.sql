@@ -123,8 +123,8 @@ SELECT cc_num, window_start AS ts, total_spend AS amt, 'spend_velocity_7d'     A
 UNION ALL
 SELECT cc_num, window_start AS ts, total_amt   AS amt, 'repeated_displacement' AS signal_type, PRIO_DISP() AS priority FROM flagged_repeated_displacement;
 
--- best_per_card: sum of all signal priorities per card — cards that fire on
--- multiple signals simultaneously score higher than single-signal cards.
+-- best_per_card: suspicion score per card — sum of priorities across all fired
+-- signals. Cards triggering multiple signals simultaneously rank higher.
 CREATE VIEW best_per_card AS
 SELECT cc_num, SUM(priority) AS total_priority
 FROM fraud_alerts
