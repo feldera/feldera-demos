@@ -1,134 +1,141 @@
 -- Feldera fraud detection pipeline — view definitions.
--- Thresholds/priorities are substituted by Python at setup time (__GB30__ etc.).
+-- Thresholds and priorities are defined as scalar functions below; no Python substitution needed.
+-- Built on the architecture of agentic-fraud-detection/programs/fraud_detection_demo.sql:
+-- all rolling aggregates are computed once in TRANSACTION_WITH_AGGREGATES using named
+-- WINDOW clauses; signal detection views are simple WHERE filters on that view.
 --
 -- ┌─────────────────────────────────────────────────────────────────────────────┐
--- │  Feldera view              →  ClickHouse equivalent (ch_full_views.sql)     │
--- ├──────────────────────────────────────┬──────────────────────────────────────┤
--- │  txn_enriched (view)                 │  CTE: txn_enriched                    │
--- │  txn_avg7 (view)                     │  CTE: txn_avg7  (+ latest_bucket col) │
--- │  flagged_gift_card_burst_30d (view)  │  CTE: flagged_gb30                    │
--- │  flagged_gift_card_burst_45d (view)  │  CTE: flagged_gb45                    │
--- │  flagged_spend_velocity_7d   (view)  │  CTE: flagged_sv7                     │
--- │  txn_dist_far_bucketed       (view)  │  CTE: txn_dist_far_bucketed           │
--- │  flagged_repeated_displacement(view) │  CTE: flagged_disp                    │
--- │  fraud_alerts                (view)  │  CTE: fraud_alerts                    │
--- │  best_per_card               (view)  │  CTE: best_per_card                   │
--- │  fraud_card_latest_ts        (view)  │  (folded into fraud_card_latest_txn)  │
--- │  fraud_card_latest_txn       (view)  │  CTE: fraud_card_latest_txn           │
--- │  fraud_alert_details   (mat. view)   │  final SELECT in fraud_signals_full   │
--- ├──────────────────────────────────────┴──────────────────────────────────────┤
--- │  Epoch bucket:  TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts)  │
--- │                   / N                                                        │
--- │  ≡ CH:          intDiv(toUnixTimestamp(ts), N)                               │
+-- │  Feldera view                    →  ClickHouse equivalent (ch_full_views)   │
+-- ├──────────────────────────────────────────┬──────────────────────────────────┤
+-- │  TRANSACTION_WITH_DISTANCE (view)        │  CTE: txn_enriched               │
+-- │  TRANSACTION_WITH_AGGREGATES (view)      │  CTEs: txn_with_avg7 + signals   │
+-- │  flagged_gift_card_burst_30d (view)      │  CTE: flagged_gb30               │
+-- │  flagged_gift_card_burst_45d (view)      │  CTE: flagged_gb45               │
+-- │  flagged_spend_velocity_7d   (view)      │  CTE: flagged_sv7                │
+-- │  flagged_repeated_displacement (view)    │  CTE: flagged_disp               │
+-- │  fraud_alerts                (view)      │  CTE: fraud_alerts               │
+-- │  best_per_card               (view)      │  CTE: best_per_card              │
+-- │  fraud_card_latest_ts        (view)      │  (folded into latest_txn)        │
+-- │  fraud_card_latest_txn       (view)      │  CTE: fraud_card_latest_txn      │
+-- │  fraud_alert_details   (mat. view)       │  final SELECT                    │
 -- └─────────────────────────────────────────────────────────────────────────────┘
 
-CREATE VIEW txn_enriched AS
+-- ── Threshold and priority constants ─────────────────────────────────────────
+
+CREATE FUNCTION GB30()      RETURNS INTEGER NOT NULL AS 20;
+CREATE FUNCTION GB45()      RETURNS INTEGER NOT NULL AS 20;
+CREATE FUNCTION SV7()       RETURNS INTEGER NOT NULL AS 20;
+CREATE FUNCTION DISP()      RETURNS INTEGER NOT NULL AS 10;
+
+CREATE FUNCTION PRIO_GB30() RETURNS INTEGER NOT NULL AS 3;
+CREATE FUNCTION PRIO_GB45() RETURNS INTEGER NOT NULL AS 4;
+CREATE FUNCTION PRIO_SV7()  RETURNS INTEGER NOT NULL AS 1;
+CREATE FUNCTION PRIO_DISP() RETURNS INTEGER NOT NULL AS 5;
+
+-- ── Base enrichment ───────────────────────────────────────────────────────────
+
+-- TRANSACTION_WITH_DISTANCE: enrich every transaction with Manhattan distance
+-- between the shipping address and the cardholder's home address.
+-- NULL timestamps are filtered here so all downstream views are clean.
+CREATE VIEW TRANSACTION_WITH_DISTANCE AS
 SELECT
     t.*,
     ABS(t.shipping_lat - c.lat) + ABS(t.shipping_long - c.long) AS distance
 FROM TRANSACTION AS t
-LEFT JOIN CUSTOMER AS c ON t.cc_num = c.cc_num;
+LEFT JOIN CUSTOMER AS c ON t.cc_num = c.cc_num
+WHERE t.ts IS NOT NULL;
 
-CREATE VIEW txn_avg7 AS
-SELECT t.*,
-       agg.avg_7day
-FROM txn_enriched t
-LEFT JOIN (
-    SELECT cc_num,
-           TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 604800 AS bucket,
-           AVG(amt) AS avg_7day
-    FROM TRANSACTION
-    GROUP BY cc_num, TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 604800
-) agg ON t.cc_num = agg.cc_num
-     AND TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', t.ts) / 604800 = agg.bucket;
+-- TRANSACTION_WITH_AGGREGATES: add all rolling window aggregates needed for
+-- fraud signal detection in one place, using named WINDOW clauses to avoid
+-- repeating the partition/order/range spec per column.
+--
+-- Windows:
+--   window_3day  — 3-day trailing  (displacement signal)
+--   window_7day  — 7-day trailing  (spend velocity + avg spend)
+--   window_30day — 30-day trailing (gift card burst)
+--   window_45day — 45-day trailing (gift card burst, wider)
+--
+-- Columns produced:
+--   avg_7day         — trailing 7-day average spend (enrichment for analysts)
+--   gift_count_30day — gift card transactions in past 30 days (signal threshold)
+--   gift_sum_30day   — total gift card spend in past 30 days   (alert amount)
+--   gift_count_45day — same over 45 days
+--   gift_sum_45day   — same over 45 days
+--   txn_count_7day   — total transactions in past 7 days       (signal threshold)
+--   txn_sum_7day     — total spend in past 7 days              (alert amount)
+--   disp_count_3day  — far-from-home transactions in past 3 days (signal threshold)
+--   disp_sum_3day    — far-from-home spend in past 3 days        (alert amount)
+CREATE VIEW TRANSACTION_WITH_AGGREGATES AS
+SELECT
+    *,
+    AVG(amt)                                                    OVER window_7day  AS avg_7day,
+    SUM(CASE WHEN category = 'gift card' THEN 1   ELSE 0 END)  OVER window_30day AS gift_count_30day,
+    SUM(CASE WHEN category = 'gift card' THEN amt ELSE 0 END)  OVER window_30day AS gift_sum_30day,
+    SUM(CASE WHEN category = 'gift card' THEN 1   ELSE 0 END)  OVER window_45day AS gift_count_45day,
+    SUM(CASE WHEN category = 'gift card' THEN amt ELSE 0 END)  OVER window_45day AS gift_sum_45day,
+    COUNT(*)                                                    OVER window_7day  AS txn_count_7day,
+    SUM(amt)                                                    OVER window_7day  AS txn_sum_7day,
+    SUM(CASE WHEN distance > 20.0 THEN 1   ELSE 0 END)         OVER window_3day  AS disp_count_3day,
+    SUM(CASE WHEN distance > 20.0 THEN amt ELSE 0 END)         OVER window_3day  AS disp_sum_3day
+FROM TRANSACTION_WITH_DISTANCE
+WINDOW
+    window_3day  AS (PARTITION BY cc_num ORDER BY ts RANGE BETWEEN INTERVAL 3  DAYS PRECEDING AND CURRENT ROW),
+    window_7day  AS (PARTITION BY cc_num ORDER BY ts RANGE BETWEEN INTERVAL 7  DAYS PRECEDING AND CURRENT ROW),
+    window_30day AS (PARTITION BY cc_num ORDER BY ts RANGE BETWEEN INTERVAL 30 DAYS PRECEDING AND CURRENT ROW),
+    window_45day AS (PARTITION BY cc_num ORDER BY ts RANGE BETWEEN INTERVAL 45 DAYS PRECEDING AND CURRENT ROW);
 
-CREATE VIEW txn_notnull AS
-SELECT * FROM TRANSACTION WHERE ts IS NOT NULL;
+-- ── Signal detection: WHERE filters on TRANSACTION_WITH_AGGREGATES ────────────
+-- Each view emits one row per transaction that sits at the tip of a qualifying
+-- window — i.e., each moment a card crosses the threshold.
 
-CREATE VIEW txn_gift_notnull AS
-SELECT * FROM TRANSACTION WHERE ts IS NOT NULL AND category = 'gift card';
-
-CREATE VIEW txn_dist_far_notnull AS
-SELECT * FROM txn_enriched WHERE ts IS NOT NULL AND distance > 20.0;
-
--- ── Signal detection: epoch-aligned GROUP BY ─────────────────────────────────
--- Matches CH-full/CH-light epoch semantics exactly: one bucket per (cc_num, epoch).
--- bucket = floor(unix_epoch / bucket_seconds) — same as intDiv() in ClickHouse.
-
--- gb30: 30-day epoch bucket  (30 * 86400 = 2592000 s)
+-- flagged_gift_card_burst_30d: card has >= GB30() gift card transactions in
+-- the trailing 30-day window.  Detects bursts of gift card purchases within a
+-- month — a common money-laundering pattern.
 CREATE VIEW flagged_gift_card_burst_30d AS
-SELECT cc_num,
-       TIMESTAMPADD(SECOND,
-           TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 2592000 * 2592000,
-           TIMESTAMP '1970-01-01 00:00:00') AS window_start,
-       COUNT(*) AS gift_card_count, SUM(amt) AS total_amt
-FROM txn_gift_notnull
-GROUP BY cc_num, TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 2592000
-HAVING COUNT(*) >= __GB30__;
+SELECT cc_num, ts AS window_start, gift_count_30day AS gift_card_count, gift_sum_30day AS total_amt
+FROM TRANSACTION_WITH_AGGREGATES
+WHERE gift_count_30day >= GB30();
 
--- gb45: 45-day epoch bucket  (45 * 86400 = 3888000 s)
+-- flagged_gift_card_burst_45d: same signal over a wider 45-day window.
+-- Catches slower accumulation that slips under the 30-day threshold.
 CREATE VIEW flagged_gift_card_burst_45d AS
-SELECT cc_num,
-       TIMESTAMPADD(SECOND,
-           TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 3888000 * 3888000,
-           TIMESTAMP '1970-01-01 00:00:00') AS window_start,
-       COUNT(*) AS gift_card_count, SUM(amt) AS total_amt
-FROM txn_gift_notnull
-GROUP BY cc_num, TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 3888000
-HAVING COUNT(*) >= __GB45__;
+SELECT cc_num, ts AS window_start, gift_count_45day AS gift_card_count, gift_sum_45day AS total_amt
+FROM TRANSACTION_WITH_AGGREGATES
+WHERE gift_count_45day >= GB45();
 
--- sv7: 7-day epoch bucket  (7 * 86400 = 604800 s)
+-- flagged_spend_velocity_7d: card has >= SV7() transactions in the trailing
+-- 7-day window.  Detects unusually high transaction frequency — a sign of account
+-- takeover or card-testing attacks.
 CREATE VIEW flagged_spend_velocity_7d AS
-WITH sv7_bucketed AS (
-    SELECT cc_num, amt,
-           TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 604800 AS bucket
-    FROM txn_notnull
-)
-SELECT cc_num,
-       TIMESTAMPADD(SECOND, bucket * 604800, TIMESTAMP '1970-01-01 00:00:00') AS window_start,
-       COUNT(*) AS txn_count, SUM(amt) AS total_spend
-FROM sv7_bucketed
-GROUP BY cc_num, bucket
-HAVING COUNT(*) >= __SV7__;
+SELECT cc_num, ts AS window_start, txn_count_7day AS txn_count, txn_sum_7day AS total_spend
+FROM TRANSACTION_WITH_AGGREGATES
+WHERE txn_count_7day >= SV7();
 
--- disp: 3-day sliding window via 3-way UNION ALL offset trick.
--- A far transaction at day D contributes to buckets D, D-1, D-2;
--- bucket B therefore counts all far transactions in [B, B+3d).
-CREATE VIEW txn_dist_far_bucketed AS
-SELECT cc_num, amt,
-       TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 86400     AS day_bucket
-FROM txn_dist_far_notnull
-UNION ALL
-SELECT cc_num, amt,
-       TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 86400 - 1 AS day_bucket
-FROM txn_dist_far_notnull
-UNION ALL
-SELECT cc_num, amt,
-       TIMESTAMPDIFF(SECOND, TIMESTAMP '1970-01-01 00:00:00', ts) / 86400 - 2 AS day_bucket
-FROM txn_dist_far_notnull;
-
+-- flagged_repeated_displacement: card has >= DISP() far-from-home transactions
+-- (distance > 20°) in the trailing 3-day window.  Detects the card being used
+-- far from the cardholder's home on multiple consecutive days — indicative of
+-- physical theft or cloning.
 CREATE VIEW flagged_repeated_displacement AS
-SELECT cc_num,
-       TIMESTAMPADD(SECOND,
-           day_bucket * 86400,
-           TIMESTAMP '1970-01-01 00:00:00') AS window_start,
-       COUNT(*) AS distant_count,
-       SUM(amt)  AS total_amt
-FROM txn_dist_far_bucketed
-GROUP BY cc_num, day_bucket
-HAVING COUNT(*) >= __DISP__;
+SELECT cc_num, ts AS window_start, disp_count_3day AS distant_count, disp_sum_3day AS total_amt
+FROM TRANSACTION_WITH_AGGREGATES
+WHERE disp_count_3day >= DISP();
 
--- ── fraud_alerts: unified alert table ────────────────────────────────────────
+-- ── Alert aggregation ─────────────────────────────────────────────────────────
 
+-- fraud_alerts: unified stream of all four signals with numeric priority:
+--   repeated_displacement=5 (highest), gift_card_burst_45d=4, gift_card_burst_30d=3,
+--   spend_velocity_7d=1 (lowest).
 CREATE VIEW fraud_alerts AS
-SELECT cc_num, window_start AS ts, total_amt   AS amt, 'gift_card_burst_30d'   AS signal_type, __PRIO_GB30__ AS priority FROM flagged_gift_card_burst_30d
+SELECT cc_num, window_start AS ts, total_amt   AS amt, 'gift_card_burst_30d'   AS signal_type, PRIO_GB30() AS priority FROM flagged_gift_card_burst_30d
 UNION ALL
-SELECT cc_num, window_start AS ts, total_amt   AS amt, 'gift_card_burst_45d'   AS signal_type, __PRIO_GB45__ AS priority FROM flagged_gift_card_burst_45d
+SELECT cc_num, window_start AS ts, total_amt   AS amt, 'gift_card_burst_45d'   AS signal_type, PRIO_GB45() AS priority FROM flagged_gift_card_burst_45d
 UNION ALL
-SELECT cc_num, window_start AS ts, total_spend AS amt, 'spend_velocity_7d'     AS signal_type, __PRIO_SV7__  AS priority FROM flagged_spend_velocity_7d
+SELECT cc_num, window_start AS ts, total_spend AS amt, 'spend_velocity_7d'     AS signal_type, PRIO_SV7()  AS priority FROM flagged_spend_velocity_7d
 UNION ALL
-SELECT cc_num, window_start AS ts, total_amt   AS amt, 'repeated_displacement' AS signal_type, __PRIO_DISP__ AS priority FROM flagged_repeated_displacement;
+SELECT cc_num, window_start AS ts, total_amt   AS amt, 'repeated_displacement' AS signal_type, PRIO_DISP() AS priority FROM flagged_repeated_displacement;
 
+-- best_per_card: highest-priority signal per card — ensures one output row
+-- per card regardless of how many signals fired simultaneously.
 CREATE VIEW best_per_card AS
 SELECT cc_num, MAX(priority) AS max_priority, MIN(signal_type) AS signal_type
 FROM fraud_alerts
@@ -143,13 +150,15 @@ FROM TRANSACTION t
 INNER JOIN fraud_alerts a ON t.cc_num = a.cc_num
 GROUP BY t.cc_num;
 
--- fraud_card_latest_txn: full row for that most-recent transaction (with distance + avg_7day).
+-- fraud_card_latest_txn: full enriched row (distance + avg_7day) for the most
+-- recent transaction of each fraud-flagged card — the analyst context snapshot.
 CREATE VIEW fraud_card_latest_txn AS
 SELECT t.cc_num, t.ts, t.amt, t.category, t.shipping_lat, t.shipping_long, t.distance, t.avg_7day
-FROM txn_avg7 t
+FROM TRANSACTION_WITH_AGGREGATES t
 INNER JOIN fraud_card_latest_ts lt ON t.cc_num = lt.cc_num AND t.ts = lt.latest_ts;
 
--- fraud_alert_details: one row per cc_num (best signal wins) with transaction enrichment.
+-- fraud_alert_details: final materialized output — one row per flagged card.
+-- Materialized so the demo query is O(flagged cards), not O(all transactions).
 CREATE MATERIALIZED VIEW fraud_alert_details AS
 SELECT
     b.cc_num,

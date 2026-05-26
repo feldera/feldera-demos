@@ -149,18 +149,8 @@ class _FelderaEngine:
 def setup_and_start(api_url: str, api_key,
                     gb30: int, gb45: int, sv7: int, disp: int,
                     prio: dict) -> _FelderaEngine:
-    """Deploy the fraud-detection SQL with substituted thresholds and priorities; return engine."""
-    sql = (
-        (_TABLES_FILE.read_text() + "\n" + _VIEWS_FILE.read_text())
-        .replace("HAVING COUNT(*) >= __GB30__", f"HAVING COUNT(*) >= {gb30}")
-        .replace("HAVING COUNT(*) >= __GB45__", f"HAVING COUNT(*) >= {gb45}")
-        .replace("HAVING COUNT(*) >= __SV7__",  f"HAVING COUNT(*) >= {sv7}")
-        .replace("HAVING COUNT(*) >= __DISP__", f"HAVING COUNT(*) >= {disp}")
-        .replace("__PRIO_GB30__", str(prio["gift_card_burst_30d"]))
-        .replace("__PRIO_GB45__", str(prio["gift_card_burst_45d"]))
-        .replace("__PRIO_SV7__",  str(prio["spend_velocity_7d"]))
-        .replace("__PRIO_DISP__", str(prio["repeated_displacement"]))
-    )
+    """Deploy the fraud-detection SQL; thresholds/priorities are defined as SQL functions."""
+    sql = _TABLES_FILE.read_text() + "\n" + _VIEWS_FILE.read_text()
     print(f"[feldera] thresholds: gb30={gb30} gb45={gb45} sv7={sv7} disp={disp}")
     engine = _FelderaEngine(api_url, api_key)
     engine.setup(sql)
@@ -215,7 +205,7 @@ def select_from_feldera(engine: _FelderaEngine,
 # ── FraudEngine implementation ─────────────────────────────────────────────────
 
 class FelderaFraudEngine(FraudEngine):
-    sim_id     = 2
+    sim_id     = 1
     name       = "Feldera"
     storage_id = "feldera"
 
