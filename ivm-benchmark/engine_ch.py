@@ -22,9 +22,9 @@ _SQL_DIR      = Path(__file__).parent / "sql"
 _CHUNK_SIZE   = 250_000   # rows per INSERT — keeps memory bounded during large preloads
 _PUSH_WORKERS = 10           # parallel INSERT threads during preload
 
-_FULL_TABLES_SQL = (_SQL_DIR / "ch_full_tables.sql").read_text()
-_FULL_VIEWS_SQL  = (_SQL_DIR / "ch_full_views.sql").read_text()
-_FULL_QUERY      = (_SQL_DIR / "ch_full_query.sql").read_text().strip()
+_FULL_TABLES_SQL = (_SQL_DIR / "clickhouse_tables.sql").read_text()
+_FULL_VIEWS_SQL  = (_SQL_DIR / "clickhouse_views.sql").read_text()
+_FULL_QUERY      = (_SQL_DIR / "clickhouse_query.sql").read_text().strip()
 
 
 # ── Low-level helpers ──────────────────────────────────────────────────────────
