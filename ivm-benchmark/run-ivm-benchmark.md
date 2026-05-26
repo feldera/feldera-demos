@@ -8,13 +8,12 @@ Before starting, show the user this overview:
 
 > **Feldera IVM Benchmark**
 >
-> This benchmark runs three fraud-detection engines side by side on a live transaction stream:
-> **CH-full** (ClickHouse full columnar scan), **CH-light** (ClickHouse Materialized Views), and **Feldera** (Incremental View Maintenance).
+> This benchmark runs two fraud-detection engines side by side on a live transaction stream:
+> **ClickHouse** (full columnar scan, O(N)) and **Feldera** (Incremental View Maintenance, O(delta)).
 >
-> The story: ClickHouse full-scan latency grows O(N) as history accumulates.
-> ClickHouse Materialized Views reduce that to O(delta) — but hit a hard limit:
-> MVs cannot JOIN other tables at refresh time, so one fraud signal is structurally impossible.
-> Feldera's IVM handles cross-table JOINs incrementally, staying fast *and* complete.
+> Both engines detect all four fraud signals with exact true sliding-window semantics and produce
+> identical alert counts. The story is purely about speed: ClickHouse query latency grows linearly
+> as history accumulates; Feldera's IVM commit is O(delta) and the final query is always O(1).
 
 Then show the plan:
 
@@ -24,13 +23,11 @@ Then show the plan:
 │                                                          │
 │  Step 1 ──► Check prerequisites                          │
 │                   │                                      │
-│  Step 2 ──► Choose demo mode                             │
+│  Step 2 ──► Start services (or mock mode)                │
 │                   │                                      │
-│  Step 3 ──► Start services (or mock mode)                │
+│  Step 3 ──► Run the benchmark                            │
 │                   │                                      │
-│  Step 4 ──► Run the benchmark                            │
-│                   │                                      │
-│  Step 5 ──► Interpret results                            │
+│  Step 4 ──► Interpret results                            │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -53,29 +50,11 @@ pip install feldera clickhouse-connect matplotlib python-dotenv requests
 
 ---
 
-## Step 2: Choose demo mode
-
-Ask the user which story they want to tell:
-
-> **Which benchmark mode?**
->
-> - `latency` — Speed story: CH-full O(N) scan vs Feldera O(delta) IVM (2 engines)
-> - `accuracy` — Completeness story: CH-light 3-signal MV vs Feldera 4-signal IVM (2 engines)
-> - `full` — Both stories at once: all three engines side by side (default)
->
-> Also ask: **Mock mode** (no database needed, simulated data) or **real mode** (live ClickHouse + Feldera)?
->
-> Type the mode name, or press Enter for `full` + `real`.
-
-Wait for the user's answer before continuing.
-
----
-
-## Step 3: Start services
+## Step 2: Start services
 
 ### Mock mode
 
-No services needed — skip to Step 4 with `--mock`.
+No services needed — skip to Step 3 with `--mock`.
 
 ### Real mode
 
@@ -108,84 +87,73 @@ Wait 3 seconds, then verify both containers appear in `docker ps`.
 
 ---
 
-## Step 4: Run the benchmark
+## Step 3: Run the benchmark
 
-Assemble the command from the user's choices in Step 2.
+Ask the user: **Mock mode** (no database needed, simulated latency) or **real mode** (live ClickHouse + Feldera)?
 
-### Base command
-
-```bash
-cd /home/nina/projects/feldera-demos/ivm-benchmark
-python3 demo_runner.py [OPTIONS]
-```
-
-### Option mapping
-
-| User choice | Flag(s) to add |
-|-------------|---------------|
-| mock mode | `--mock` |
-| mode = `latency` | `--mode latency` |
-| mode = `accuracy` | `--mode accuracy` |
-| mode = `full` | _(default, no flag needed)_ |
-| no display (remote/headless) | `--no-plot` |
-| save results | `--output results.txt` |
-
-### Suggested starter commands
+### Suggested commands
 
 **Quick demo (mock, no DB needed):**
 ```bash
-python3 demo_runner.py --mock --mode full
+python3 demo_runner.py --mock --steps 20
 ```
 
-**Headless on remote machine:**
+**Real mode, smoke test (0.1x data):**
 ```bash
-python3 demo_runner.py --mock --mode full --no-plot --output results.txt
+python3 demo_runner.py --data-dir data/0.1x --interval 0 --steps 10 --sequential
 ```
 
-**Real mode, latency story:**
+**Real mode, standard benchmark (1x data with preloaded history):**
 ```bash
-python3 demo_runner.py --mode latency --preload-days 30 --steps 40
+python3 demo_runner.py --data-dir data/1x --preload-rows 3000000 --steps 500 --batch-rows 2000 --interval 0 --output results.txt
 ```
 
-**Real mode, full story, save output:**
+**Feldera only:**
 ```bash
-python3 demo_runner.py --mode full --preload-days 30 --steps 40 --no-plot --output results.txt
+python3 demo_runner.py --no-clickhouse --data-dir data/0.1x --interval 0
 ```
 
-Tell the user the command you are about to run, then execute it. Run it in the foreground so the user can see the output.
+**ClickHouse only:**
+```bash
+python3 demo_runner.py --no-feldera --data-dir data/0.1x --interval 0
+```
+
+Tell the user the command you are about to run, then execute it in the foreground so the user can see the output.
 
 ---
 
-## Step 5: Interpret results
+## Step 4: Interpret results
 
 After the run completes, explain the summary table to the user:
 
 > **Reading the results:**
 >
 > - `ins` — time to push the batch into the engine
-> - `ref+qry` — for CH engines: full recompute happens here at query time; for Feldera: `ref` = IVM incremental commit, `qry` = trivial view read
+> - `ref+qry` — for ClickHouse: full O(N) recompute at query time; for Feldera: `ref` = IVM incremental commit, `qry` = O(1) read from precomputed `fraud_alert_details`
 > - `total` = `ins + ref + qry` — the fair end-to-end comparison
+> - `n` — new fraud alerts detected this step (identical for both engines)
 >
 > **What to look for:**
 >
-> **Latency story** (`CH-full` vs `Feldera`): As step number increases and history accumulates, CH-full's `ref+qry` grows (O(N) scan). Feldera's stays flat (O(delta) IVM).
->
-> **Accuracy story** (`CH-light` vs `Feldera`): CH-light shows more alerts (lower thresholds compensate for the missing signal). Feldera detects all 4 signals including `repeated_displacement`, which requires a JOIN to the `customers` table — structurally impossible for ClickHouse Materialized Views.
+> As the step number increases and history accumulates, ClickHouse's `ref+qry` grows (O(N) scan).
+> Feldera's stays flat — O(delta) IVM at commit, O(1) query. The gap widens with larger datasets.
 
-Point out the key numbers from the actual output: which engine was fastest, what the latency gap was, and how many alerts each engine found.
+Point out the key numbers from the actual output: which engine was fastest, what the latency gap was, and how many alerts were found.
 
 ---
 
 ## Signal reference
 
-| Signal | Definition | CH-full | CH-light | Feldera |
-|--------|-----------|---------|----------|---------|
-| `gift_card_burst_30d` | 7+ gift card txns in 30-day window | ✓ | ✓ MV-backed | ✓ IVM |
-| `gift_card_burst_90d` | 11+ gift card txns in 90-day window | ✓ | ✓ MV-backed | ✓ IVM |
-| `spend_velocity_7d` | 10+ txns in 7-day window | ✓ | ✓ MV-backed | ✓ IVM |
-| `repeated_displacement` | 7+ txns > 0.5° from home in 3-day window | ✓ | **✗ impossible** | ✓ IVM |
+| Signal | Definition | Window |
+|--------|-----------|--------|
+| `gift_card_burst_30d` | 20+ gift card transactions | 30-day sliding |
+| `gift_card_burst_45d` | 20+ gift card transactions | 45-day sliding |
+| `spend_velocity_7d` | 20+ transactions (any category) | 7-day sliding |
+| `repeated_displacement` | 10+ transactions > 20° from home | 3-day sliding |
 
-The `repeated_displacement` signal requires computing distance from the cardholder's home address (`customers` table). ClickHouse MVs fire at INSERT time and cannot JOIN another table — this signal is architecturally unavailable in CH-light.
+All four signals use exact true sliding windows in both engines. Both engines join the `customers` table for the displacement distance check. Alert counts are identical.
+
+Suspicion score per card = `SUM` of all fired signal priorities. Cards triggering multiple signals simultaneously rank higher in the review queue.
 
 ---
 
@@ -193,13 +161,14 @@ The `repeated_displacement` signal requires computing distance from the cardhold
 
 After interpreting results, offer:
 
-> **Want to go deeper?**
+> **Want to see a bigger gap?**
 >
-> - `--data-dir data/1x` — 10× more history; latency gap becomes dramatic
-> - `--data-dir data/10x` — 100× history; maximum latency gap
-> - `--steps 80` — longer run to see the O(N) curve clearly
+> - `--data-dir data/10x` — 10× more history; ClickHouse latency grows noticeably
+> - `--data-dir data/100x` — 100× history; maximum latency gap
+> - `--preload-rows 3000000` — pre-load 3M rows of history before streaming
+> - `--steps 500 --batch-rows 2000` — long run to see the O(N) curve clearly
 >
 > Or run a full experiment sweep:
 > ```bash
-> python3 run_experiments.py
+> python3 run_experiments.py --data-dir data/100x --preload-rows 3000000 --steps 500 --batch-rows 2000 --engines all
 > ```
