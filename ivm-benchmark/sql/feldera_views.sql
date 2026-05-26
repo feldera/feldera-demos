@@ -15,7 +15,7 @@
 -- │  flagged_spend_velocity_7d   (view)      │  CTE: flagged_sv7                │
 -- │  flagged_repeated_displacement (view)    │  CTE: flagged_disp               │
 -- │  fraud_alerts                (view)      │  CTE: fraud_alerts               │
--- │  best_per_card               (view)      │  CTE: best_per_card              │
+-- │  card_suspicion_score        (view)      │  CTE: card_suspicion_score       │
 -- │  fraud_card_latest_ts        (view)      │  (folded into latest_txn)        │
 -- │  fraud_card_latest_txn       (view)      │  CTE: fraud_card_latest_txn      │
 -- │  fraud_alert_details   (mat. view)       │  final SELECT                    │
@@ -123,9 +123,9 @@ SELECT cc_num, window_start AS ts, total_spend AS amt, 'spend_velocity_7d'     A
 UNION ALL
 SELECT cc_num, window_start AS ts, total_amt   AS amt, 'repeated_displacement' AS signal_type, PRIO_DISP() AS priority FROM flagged_repeated_displacement;
 
--- best_per_card: suspicion score per card — sum of priorities across all fired
+-- card_suspicion_score: suspicion score per card — sum of priorities across all fired
 -- signals. Cards triggering multiple signals simultaneously rank higher.
-CREATE VIEW best_per_card AS
+CREATE VIEW card_suspicion_score AS
 SELECT cc_num, SUM(priority) AS total_priority
 FROM fraud_alerts
 GROUP BY cc_num;
@@ -161,7 +161,7 @@ SELECT
     MIN(t.shipping_long) AS shipping_long,
     MIN(t.distance)      AS distance,
     MIN(t.avg_7day)      AS avg_7day
-FROM best_per_card b
+FROM card_suspicion_score b
 INNER JOIN fraud_alerts a ON b.cc_num = a.cc_num
 INNER JOIN fraud_card_latest_txn t ON b.cc_num = t.cc_num
 GROUP BY b.cc_num;

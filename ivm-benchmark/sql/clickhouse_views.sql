@@ -14,7 +14,7 @@
 -- │  flagged_sv7                             │  flagged_spend_velocity_7d        │
 -- │  flagged_disp                            │  flagged_repeated_displacement    │
 -- │  fraud_alerts                            │  fraud_alerts                     │
--- │  best_per_card                           │  best_per_card                    │
+-- │  card_suspicion_score                    │  card_suspicion_score             │
 -- │  fraud_card_latest_txn                   │  fraud_card_latest_ts/txn         │
 -- │  final SELECT                            │  fraud_alert_details (mat. view)  │
 -- └─────────────────────────────────────────────────────────────────────────────┘
@@ -79,7 +79,7 @@ fraud_alerts AS (
     UNION ALL SELECT cc_num, window_start AS ts, total_amt   AS amt, signal_type, priority FROM flagged_disp
 ),
 -- suspicion score per card: sum of priorities across all fired signals
-best_per_card AS (
+card_suspicion_score AS (
     SELECT cc_num,
            sum(priority) AS total_priority
     FROM fraud_alerts
@@ -110,5 +110,5 @@ SELECT
     'high'                                                      AS confidence,
     s.total_priority * 1000 + least(b.max_amt, toFloat64(9999)) AS review_priority
 FROM fraud_card_latest_txn AS b
-JOIN best_per_card AS s USING (cc_num)
+JOIN card_suspicion_score AS s USING (cc_num)
 ORDER BY review_priority DESC;
