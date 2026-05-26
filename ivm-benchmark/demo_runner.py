@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """
-demo_runner.py — Three-way fraud detection comparison.
+demo_runner.py — Feldera vs ClickHouse fraud detection benchmark.
 
 Engines:
   CH-full  (sim 0) — all 4 signals, full O(N) columnar scan per step
-  CH-light (sim 1) — 4 signals via SummingMergeTree MVs (displacement is worst-case approx), O(delta) updates,
-                     but repeated_displacement is missing (requires customer JOIN)
-  Feldera  (sim 2) — all 4 signals, O(delta) IVM — fast AND complete
+  Feldera  (sim 1) — all 4 signals, O(delta) IVM — fast AND complete
 
 Demo modes (--mode):
-  latency   — CH-full vs Feldera: speed story
-  accuracy  — CH-light vs Feldera: completeness story
-  full      — all three side-by-side
+  latency / full  — CH-full vs Feldera: speed story
 
 Data scales (--data-dir):
   data/0.1x   ~600K transactions  — quick smoke test
@@ -19,10 +15,8 @@ Data scales (--data-dir):
   data/10x    ~60M transactions  — maximum latency gap
 
 Usage:
-    python3 demo_runner.py --mock                        # no DB needed
-    python3 demo_runner.py --mode accuracy --mock        # missed-fraud story
-    python3 demo_runner.py --mode full --mock            # all three
-    python3 demo_runner.py --data-dir data/0.1x          # quick real run
+    python3 demo_runner.py --mock                # no DB needed
+    python3 demo_runner.py --data-dir data/0.1x  # quick real run
 """
 
 import argparse
@@ -40,9 +34,9 @@ import constants
 from constants import (
     GIFT_BURST_30D_THRESHOLD, GIFT_BURST_45D_THRESHOLD,  # noqa: F401 (re-exported)
     SPEND_VELOCITY_7D_THRESHOLD, DISPLACEMENT_THRESHOLD,  # noqa: F401
-    ALL_SIGNALS, CH_LIGHT_SIGNALS,
+    ALL_SIGNALS,
     N_STEPS, STEP_INTERVAL, PRELOAD_ROWS, DATA_DIR,
-    CH_HOST, CH_PORT, CH_DATABASE, CH_DATABASE_LIGHT, CH_USERNAME, CH_PASSWORD,
+    CH_HOST, CH_PORT, CH_DATABASE, CH_USERNAME, CH_PASSWORD,
     SIM_NAMES, DEMO_MODES,
     MOCK_QUERY_BASE, MOCK_QUERY_GROWTH,
     THRESHOLD_PROFILES,
@@ -72,16 +66,9 @@ def _mock_query(sim_id):
         time.sleep(max(0.0, q_t))
 
         rng = random.Random(step_idx)
-        # CH-light over-alerts (simpler MVs, medium confidence, missing displacement signal)
-        # CH-full and Feldera are more precise with all 4 signals at high confidence
-        if sim_id == 1:
-            n       = rng.randint(70, 100)
-            signals = CH_LIGHT_SIGNALS
-            conf    = "medium"
-        else:
-            n       = rng.randint(10, 20)
-            signals = ALL_SIGNALS
-            conf    = "high"
+        n       = rng.randint(10, 20)
+        signals = ALL_SIGNALS
+        conf    = "high"
 
         txns = [{
             "cc_num":       random.randint(10**14, 10**15),
@@ -95,7 +82,7 @@ def _mock_query(sim_id):
             "distance":     round(random.uniform(0, 2.5), 3),
             "avg_7day":     round(random.uniform(50, 2000), 2),
         } for _ in range(n)]
-        if sim_id == 2:  # Feldera mock: simulated time is IVM refresh
+        if sim_id == 1:  # Feldera mock: simulated time is IVM refresh
             return txns, 0.0, q_t, 0.0, f"batch {step_idx+1}/{N_STEPS}"
         else:            # CH mock: simulated time is scan/query
             return txns, 0.0, 0.0, q_t, f"batch {step_idx+1}/{N_STEPS}"
@@ -252,7 +239,7 @@ def _parse_std_rows(path) -> list[dict]:
 def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_key, start_event):
     """Set up engines, load data, return (query_fns, push_threads) for the streaming loop."""
     from collections import defaultdict
-    from engine_ch      import ClickHouseFullEngine, ClickHouseMVEngine
+    from engine_ch      import ClickHouseFullEngine
     from engine_feldera import FelderaFraudEngine
 
     engines = []
@@ -261,10 +248,6 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
     if not skip_ch:
         engines.append(ClickHouseFullEngine(
             args.ch_host, args.ch_port, args.ch_database,
-            args.ch_user, args.ch_password))
-    if not skip_ch and 1 in active_sims:
-        engines.append(ClickHouseMVEngine(
-            args.ch_host, args.ch_port, CH_DATABASE_LIGHT,
             args.ch_user, args.ch_password))
 
     # Split CSV and load each storage group in parallel (primary before secondary).
@@ -393,13 +376,12 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
                                api_url, api_key) -> tuple:
     """Run each engine group end-to-end before starting the next.
 
-    Engine order: CH-full (+CH-light, shared inserts), then Feldera.
     Each group sets up fresh (preload), runs all N_STEPS steps, then the
     next group starts — no cross-engine CPU/IO contention at any step.
     Returns (perf_data, preload_times, split_meta).
     """
     from collections import defaultdict
-    from engine_ch      import ClickHouseFullEngine, ClickHouseMVEngine
+    from engine_ch      import ClickHouseFullEngine
     from engine_feldera import FelderaFraudEngine
 
     engines = []
@@ -408,10 +390,6 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
     if not skip_ch:
         engines.append(ClickHouseFullEngine(
             args.ch_host, args.ch_port, args.ch_database,
-            args.ch_user, args.ch_password))
-    if not skip_ch and 1 in active_sims:
-        engines.append(ClickHouseMVEngine(
-            args.ch_host, args.ch_port, CH_DATABASE_LIGHT,
             args.ch_user, args.ch_password))
 
     preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_ROWS, args.batch_rows)
@@ -660,7 +638,7 @@ def main():
                         help="latency | accuracy | full  (default: full)")
     parser.add_argument("--no-feldera",   action="store_true")
     parser.add_argument("--no-ch",        action="store_true",
-                        help="Disable all ClickHouse engines (CH-full and CH-light)")
+                        help="Disable ClickHouse engine (CH-full)")
     parser.add_argument("--data-dir",     default=DATA_DIR,
                         help="data/0.1x | data/1x | data/10x  (default: data/1x)")
     parser.add_argument("--ch-host",      default=CH_HOST)
@@ -693,8 +671,8 @@ def main():
 
     # ── Connectivity pre-check ─────────────────────────────────────────────
     if not args.mock:
-        _need_ch      = any(s in list(DEMO_MODES[args.mode]) for s in (0, 1)) and not args.no_ch
-        _need_feldera = 2 in list(DEMO_MODES[args.mode]) and not args.no_feldera
+        _need_ch      = 0 in list(DEMO_MODES[args.mode]) and not args.no_ch
+        _need_feldera = 1 in list(DEMO_MODES[args.mode]) and not args.no_feldera
         errors = []
         if _need_ch:
             try:
@@ -750,15 +728,15 @@ def main():
 
     active_sims = list(DEMO_MODES[args.mode])
     if args.no_ch:
-        active_sims = [s for s in active_sims if s not in (0, 1)]
+        active_sims = [s for s in active_sims if s != 0]
     if args.no_feldera:
-        active_sims = [s for s in active_sims if s != 2]
+        active_sims = [s for s in active_sims if s != 1]
 
     api_url = args.api_url or DEFAULT_API_URL
     api_key = args.api_key or DEFAULT_API_KEY
 
-    skip_ch      = not any(s in active_sims for s in (0, 1))
-    skip_feldera = 2 not in active_sims
+    skip_ch      = 0 not in active_sims
+    skip_feldera = 1 not in active_sims
 
     start_event  = threading.Event()
     query_fns    = {}

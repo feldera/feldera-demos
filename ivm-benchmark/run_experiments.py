@@ -5,24 +5,22 @@ run_experiments.py — Sweep runner for the Feldera vs ClickHouse benchmark.
 Runs demo_runner.py headlessly across combinations of:
   --preload-rows  (rows of history loaded before streaming)
   --steps         (number of streaming batches)
-  --engines       1 = Feldera only
-                  2 = CH-full + Feldera  (latency story)
-                  3 = CH-full + CH-light + Feldera  (full comparison)
+  --engines       feldera | ch-full | latency | all
 
 Results are saved to experiments/<tag>.txt.
 
 Usage:
-    # Run the default sweep (all combinations of preload/steps/engines)
+    # Run the default sweep
     python3 run_experiments.py
 
     # Custom sweep
-    python3 run_experiments.py --preload 0 30 --steps 20 40 --engines 2 3
+    python3 run_experiments.py --preload 0 30 --steps 20 40 --engines latency
 
     # Single run
-    python3 run_experiments.py --preload 30 --steps 40 --engines 3
+    python3 run_experiments.py --preload 30 --steps 40 --engines all
 
     # Different data scale
-    python3 run_experiments.py --data-dir data/1x --preload 30 --steps 40 --engines 3
+    python3 run_experiments.py --data-dir data/1x --preload 30 --steps 40 --engines all
 """
 
 import argparse
@@ -43,14 +41,11 @@ def _set_mem_limit():
     resource.setrlimit(resource.RLIMIT_AS, (MEM_LIMIT_BYTES, MEM_LIMIT_BYTES))
 
 # Preset name → (demo_runner.py flags, short label).
-# Single-engine presets isolate one engine; combined presets run side-by-side.
 ENGINE_PRESETS = {
-    "ch-full":  (["--mode", "latency",  "--no-feldera"], "ch-full"),
-    "ch-light": (["--mode", "accuracy", "--no-feldera"], "ch-light"),
-    "feldera":  (["--no-ch"],                            "feldera"),
-    "latency":  (["--mode", "latency"],                  "ch-full+feldera"),
-    "accuracy": (["--mode", "accuracy"],                 "ch-light+feldera"),
-    "all":      (["--mode", "full"],                     "all"),
+    "ch-full":  (["--mode", "latency", "--no-feldera"], "ch-full"),
+    "feldera":  (["--no-ch"],                           "feldera"),
+    "latency":  (["--mode", "latency"],                 "ch-full+feldera"),
+    "all":      (["--mode", "full"],                    "all"),
 }
 
 
@@ -100,9 +95,8 @@ def main():
                         choices=list(ENGINE_PRESETS.keys()),
                         metavar="PRESET",
                         help="Engine preset(s) to run; each value = one experiment in the sweep. "
-                             "Choices: ch-full, ch-light, feldera (single engine); "
-                             "latency (CH-full+Feldera), accuracy (CH-light+Feldera), "
-                             "all (CH-full+CH-light+Feldera). (default: all)")
+                             "Choices: ch-full, feldera (single engine); "
+                             "latency / all (CH-full+Feldera). (default: all)")
     parser.add_argument("--data-dir",  default="data/0.1x",
                         help="Dataset scale (default: data/0.1x)")
     parser.add_argument("--mock",          action="store_true",

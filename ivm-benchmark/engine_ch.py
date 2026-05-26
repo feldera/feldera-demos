@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """
-engine_ch.py — ClickHouse FraudEngine implementations.
+engine_ch.py — ClickHouse FraudEngine implementation.
 
 ClickHouseFullEngine  (sim 0, "CH-full")
   Primary for the "clickhouse" storage group.  Owns schema setup, customer
   load, and all INSERTs.  Runs a full O(N) columnar scan on every query —
   latency grows with history size.
-
-ClickHouseMVEngine  (sim 1, "CH-light")
-  Independent engine with its own database (fraud_detection_light).
-  SummingMergeTree MVs provide O(delta) query cost for three signals;
-  repeated_displacement uses worst-case approximation (no distance check).
-  Runs its own setup(), preload, and push_step() in parallel with CH-full.
 """
 
 import csv
@@ -27,12 +21,9 @@ _SQL_DIR      = Path(__file__).parent / "sql"
 _CHUNK_SIZE   = 250_000   # rows per INSERT — keeps memory bounded during large preloads
 _PUSH_WORKERS = 10           # parallel INSERT threads during preload
 
-_FULL_TABLES_SQL  = (_SQL_DIR / "ch_full_tables.sql").read_text()
-_FULL_VIEWS_SQL   = (_SQL_DIR / "ch_full_views.sql").read_text()
-_LIGHT_TABLES_SQL = (_SQL_DIR / "ch_light_tables.sql").read_text()
-_LIGHT_VIEWS_SQL  = (_SQL_DIR / "ch_light_views.sql").read_text()
-_FULL_QUERY       = (_SQL_DIR / "ch_full_query.sql").read_text().strip()
-_LIGHT_QUERY      = (_SQL_DIR / "ch_light_query.sql").read_text().strip()
+_FULL_TABLES_SQL = (_SQL_DIR / "ch_full_tables.sql").read_text()
+_FULL_VIEWS_SQL  = (_SQL_DIR / "ch_full_views.sql").read_text()
+_FULL_QUERY      = (_SQL_DIR / "ch_full_query.sql").read_text().strip()
 
 
 def _substitute(sql: str) -> str:
@@ -273,60 +264,3 @@ class ClickHouseFullEngine(_ClickHouseBase):
         return _parse_result(result), time.perf_counter() - t0
 
 
-class ClickHouseMVEngine(_ClickHouseBase):
-    sim_id     = 1
-    name       = "CH-light"
-    storage_id = "clickhouse_light"   # own storage group → runs all steps independently
-
-    def setup(self, preload_path: "Path | None", data_dir: Path) -> None:
-        client = self._get_client()
-        _exec_sql(client, _FULL_TABLES_SQL)
-        _exec_sql(client, _LIGHT_TABLES_SQL)
-        client.command("TRUNCATE TABLE IF EXISTS transactions")
-        client.command("TRUNCATE TABLE IF EXISTS customers")
-        for tbl in ("gb30_counts", "gb45_counts", "sv7_counts", "disp_counts"):
-            client.command(f"TRUNCATE TABLE IF EXISTS {tbl}")
-        print("[CH-light] Tables ready.")
-
-        rows = []
-        with open(Path(data_dir) / "customers.csv", newline="") as f:
-            for row in csv.DictReader(f):
-                rows.append([
-                    int(row["cc_num"]),
-                    row["name"],
-                    float(row["lat"])  if row["lat"]  else 0.0,
-                    float(row["long"]) if row["long"] else 0.0,
-                ])
-        _insert(self._conn_kwargs(), "customers", ["cc_num", "name", "lat", "long"], rows)
-        print(f"[CH-light] {len(rows):,} customers inserted.")
-
-        if preload_path is not None:
-            def _parse_txn(row):
-                return [
-                    int(row["cc_num"]),
-                    datetime.strptime(row["ts"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc),
-                    float(row["amt"])           if row["amt"]           else 0.0,
-                    row["category"],
-                    float(row["shipping_lat"])  if row["shipping_lat"]  else 0.0,
-                    float(row["shipping_long"]) if row["shipping_long"] else 0.0,
-                ]
-            t0 = time.perf_counter()
-            n = _stream_insert(self._conn_kwargs(), "transactions",
-                               ["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"],
-                               preload_path, _parse_txn)
-            self._preload_ins_t = time.perf_counter() - t0
-            print(f"[CH-light] {n:,} preload rows in {self._preload_ins_t:.1f}s")
-
-        _exec_sql(client, _substitute(_LIGHT_VIEWS_SQL))
-        print("[CH-light] fraud_signals_light + count views created.")
-
-    def push_step(self, rows: list[dict]) -> None:
-        t0 = time.perf_counter()
-        self._get_client().insert("transactions", _to_ch_rows(rows),
-            column_names=["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"])
-        self._insert_t = time.perf_counter() - t0
-
-    def query(self, win_start: datetime, win_end: datetime) -> tuple[list[dict], float]:
-        t0  = time.perf_counter()
-        result = self._get_client().query(_LIGHT_QUERY)
-        return _parse_result(result), time.perf_counter() - t0
