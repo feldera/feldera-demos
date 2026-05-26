@@ -1,32 +1,6 @@
 # Precise and Fast: Fraud Detection at Streaming Scale
 
-Every second matters in card fraud. A stolen card number goes on sale in underground markets within hours of a breach. Automated bots buy gift cards — anonymous, instantly redeemable, impossible to reverse — to drain the balance before the victim notices. By the time a fraud analyst opens a ticket, the money is gone.
-
-The response is to flag suspicious transactions as they arrive and route them for review. But review has a cost. Whether a human analyst looks at a case or an LLM makes the call, every alert you generate is a unit of work — and false positives are wasted spend.
-
-**The numbers add up fast.** A useful Claude Sonnet triage call costs roughly $0.002 — a single flagged transaction is not enough context for a good decision, so the prompt includes the full picture: the customer profile, the last 10–20 transactions as history, the flagged transaction itself, and the signal that triggered it. That adds up to about 1,500 input tokens. Add 100 output tokens for the decision and reason, and each call costs approximately $0.002 at Claude Sonnet pricing.
-
-Now run the math at two common transaction volumes:
-
-| | 100K transactions/hr | 1M transactions/hr |
-|--|---------------------|----------------------|
-| Precise detection — 1% alert rate | 1,000 calls/hr · **$2.00/hr** · $17,520/yr | 10,000 calls/hr · **$20.00/hr** · $175,200/yr |
-| Approximate detection — 3% alert rate | 3,000 calls/hr · **$6.00/hr** · $52,560/yr | 30,000 calls/hr · **$60.00/hr** · $525,600/yr |
-| **Extra cost of false positives** | +$35,040/yr | **+$350,400/yr** |
-
-The gap is not the detection engine cost — it's the downstream review cost that approximate detection silently inflates. At 1M transactions per hour, imprecise fraud signals generate roughly **$350,000 per year in unnecessary LLM calls** before a single analyst touches a case.
-
-You want the alert set to be small and confident.
-
-**This is the core tension.** You want queries complex enough to be accurate, and you want them to run fast on a live stream.
-
-Two strategies compete here:
-
-- **ClickHouse** runs the full, accurate detection query on every batch — but it scans all history every time. Query time grows O(N) as history accumulates. Accurate, but latency blows up as history grows.
-
-- **Feldera** maintains the full computation graph — cross-table joins included — incrementally over each delta. The same precise queries that ClickHouse runs in O(N) now run in O(delta), and the final count query is O(1) against a precomputed materialized view. Fast and accurate.
-
-This benchmark measures latency across both engines on the same transaction stream, at the same accuracy.
+<!-- TODO: add intro story -->
 
 ---
 
