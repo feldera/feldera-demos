@@ -164,4 +164,4 @@ SELECT
 FROM card_suspicion_score b
 INNER JOIN fraud_alerts a ON b.cc_num = a.cc_num
 INNER JOIN fraud_card_latest_txn t ON b.cc_num = t.cc_num
-GROUP BY b.cc_num;
+GROUP BY b.cc_num, b.total_priority;
