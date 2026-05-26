@@ -140,7 +140,7 @@ flagged_repeated_displacement    — WHERE disp_count_3day  >= DISP()
     ↓
 fraud_alerts                     — UNION ALL of all four signal streams
     ↓
-best_per_card                    — highest-priority signal per card
+card_suspicion_score             — SUM of signal priorities per card (multi-signal cards rank higher)
     ↓
 fraud_alert_details              — final enriched output (one row per flagged card)
 ```
