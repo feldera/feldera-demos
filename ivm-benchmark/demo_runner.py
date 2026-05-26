@@ -41,8 +41,8 @@ from constants import (
     GIFT_BURST_30D_THRESHOLD, GIFT_BURST_45D_THRESHOLD,  # noqa: F401 (re-exported)
     SPEND_VELOCITY_7D_THRESHOLD, DISPLACEMENT_THRESHOLD,  # noqa: F401
     ALL_SIGNALS, CH_LIGHT_SIGNALS,
-    N_STEPS, STEP_INTERVAL, PRELOAD_DAYS, DATA_START, DATA_DIR,
-    CH_HOST, CH_PORT, CH_DATABASE, CH_USERNAME, CH_PASSWORD,
+    N_STEPS, STEP_INTERVAL, PRELOAD_ROWS, DATA_DIR,
+    CH_HOST, CH_PORT, CH_DATABASE, CH_DATABASE_LIGHT, CH_USERNAME, CH_PASSWORD,
     SIM_NAMES, DEMO_MODES,
     MOCK_QUERY_BASE, MOCK_QUERY_GROWTH,
     THRESHOLD_PROFILES,
@@ -140,11 +140,11 @@ class SimWorker(threading.Thread):
 
 # ── CSV split ──────────────────────────────────────────────────────────────────
 
-def split_csv(data_dir, n_steps, preload_days=PRELOAD_DAYS):
+def split_csv(data_dir, n_steps, preload_rows=PRELOAD_ROWS, batch_rows=None):
     import json
-    from datetime import timedelta
     data_dir  = Path(data_dir)
-    cache_dir = data_dir / ".cache" / f"p{preload_days}_s{n_steps}"
+    br_tag    = f"_br{batch_rows}" if batch_rows else ""
+    cache_dir = data_dir / ".cache" / f"pr{preload_rows}_s{n_steps}{br_tag}"
     meta_file = cache_dir / "meta.json"
 
     if meta_file.exists():
@@ -158,29 +158,28 @@ def split_csv(data_dir, n_steps, preload_days=PRELOAD_DAYS):
         return preload, batches
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cutoff_str = (DATA_START + timedelta(days=preload_days)).strftime("%Y-%m-%d %H:%M:%S")
 
-    print(f"[split] Pre-load cutoff: {cutoff_str[:10]}  "
-          f"({preload_days} days)  →  {n_steps} streaming batches after that")
+    # Count total rows (needed to compute batch_size when batch_rows not given).
+    total = sum(1 for _ in open(data_dir / "transactions.csv", newline="")) - 1  # subtract header
+    n_stream = max(0, total - preload_rows)
+
+    if batch_rows:
+        batch_size     = max(1, batch_rows)
+        n_actual_steps = max(1, (n_stream + batch_size - 1) // batch_size)
+        if n_steps > 0:
+            n_actual_steps = min(n_actual_steps, n_steps)
+    else:
+        batch_size     = max(1, n_stream // n_steps) if n_steps > 0 else n_stream
+        n_actual_steps = n_steps
+    print(f"[split] preload={preload_rows:,} rows  streaming={n_stream:,} rows  "
+          f"({batch_size:,} rows/batch × {n_actual_steps} steps)")
 
     header = ["category", "ts", "amt", "cc_num", "shipping_lat", "shipping_long"]
-
-    total = 0
-    n_preload = 0
-    with open(data_dir / "transactions.csv", newline="") as f:
-        for row in csv_mod.DictReader(f):
-            total += 1
-            if row["ts"] < cutoff_str:
-                n_preload += 1
-    n_stream   = total - n_preload
-    batch_size = max(1, n_stream // n_steps)
-    print(f"  {total:,} rows total  →  {n_preload:,} preload  +  {n_stream:,} streaming  "
-          f"(~{batch_size:,} rows/batch)")
 
     preload = {"path": cache_dir / "preload.csv", "n_rows": 0, "ts_min": None, "ts_max": None}
     batches = [{"path": cache_dir / f"batch_{i:02d}.csv",
                 "n_rows": 0, "ts_min": None, "ts_max": None}
-               for i in range(n_steps)]
+               for i in range(n_actual_steps)]
 
     all_files  = [preload] + batches
     open_files = [open(str(f["path"]), "w", newline="") for f in all_files]
@@ -188,20 +187,23 @@ def split_csv(data_dir, n_steps, preload_days=PRELOAD_DAYS):
     for w in writers:
         w.writerow(header)
 
+    row_idx    = 0
     stream_idx = 0
     with open(data_dir / "transactions.csv", newline="") as f:
         for row in csv_mod.DictReader(f):
             ts = row["ts"]
             r  = [row["category"], ts, row["amt"],
                   row["cc_num"], row["shipping_lat"], row["shipping_long"]]
-            if ts < cutoff_str:
+            if row_idx < preload_rows:
                 writers[0].writerow(r)
                 _upd(preload, ts)
             else:
-                b_idx = min(stream_idx // batch_size, n_steps - 1)
-                writers[b_idx + 1].writerow(r)
-                _upd(batches[b_idx], ts)
+                b_idx = stream_idx // batch_size
+                if b_idx < n_actual_steps:
+                    writers[b_idx + 1].writerow(r)
+                    _upd(batches[b_idx], ts)
                 stream_idx += 1
+            row_idx += 1
 
     for f in open_files:
         f.close()
@@ -212,13 +214,9 @@ def split_csv(data_dir, n_steps, preload_days=PRELOAD_DAYS):
     }
     meta_file.write_text(json.dumps(meta, indent=2))
 
-    print(f"  preload : {preload['n_rows']:,} rows  "
-          f"{preload['ts_min'][:10] if preload['ts_min'] else '-'} → "
-          f"{preload['ts_max'][:10] if preload['ts_max'] else '-'}")
+    print(f"  preload : {preload['n_rows']:,} rows")
     for i, b in enumerate(batches):
-        print(f"  batch {i:2d}: {b['n_rows']:,} rows  "
-              f"{b['ts_min'][:10] if b['ts_min'] else '-'} → "
-              f"{b['ts_max'][:10] if b['ts_max'] else '-'}")
+        print(f"  batch {i:2d}: {b['n_rows']:,} rows")
 
     return preload, batches
 
@@ -262,15 +260,15 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
         engines.append(ClickHouseFullEngine(
             args.ch_host, args.ch_port, args.ch_database,
             args.ch_user, args.ch_password))
-        if 1 in active_sims:
-            engines.append(ClickHouseMVEngine(
-                args.ch_host, args.ch_port, args.ch_database,
-                args.ch_user, args.ch_password))
     if not skip_feldera:
         engines.append(FelderaFraudEngine(api_url, api_key))
+    if not skip_ch and 1 in active_sims:
+        engines.append(ClickHouseMVEngine(
+            args.ch_host, args.ch_port, CH_DATABASE_LIGHT,
+            args.ch_user, args.ch_password))
 
     # Split CSV and load each storage group in parallel (primary before secondary).
-    preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_DAYS)
+    preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_ROWS, args.batch_rows)
     batches = batches[:N_STEPS]   # honour --max-steps (N_STEPS = min(--max-steps, --steps))
     preload_path = preload["path"] if preload["n_rows"] > 0 else None
 
@@ -305,7 +303,7 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
 
     # Build per-step windows: each step queries only new rows in the current batch.
     # batch_starts[i] = previous win_end (dataset start for step 0).
-    _dataset_start = datetime.strptime(batches[0]["ts_min"], "%Y-%m-%d %H:%M:%S") if batches else DATA_START
+    _dataset_start = datetime.strptime(batches[0]["ts_min"], "%Y-%m-%d %H:%M:%S") if batches else datetime(1970, 1, 1)
     _max_ts, win_ends = None, []
     for b in batches:
         if _max_ts is None or b["ts_max"] > _max_ts:
@@ -383,7 +381,6 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
     query_fns = {e.sim_id: _query_fn(e, e.storage_id) for e in engines}
     split_meta = {
         "preload_rows":   preload["n_rows"],
-        "preload_days":   PRELOAD_DAYS,
         "n_batches":      len(batches),
         "rows_per_batch": batches[0]["n_rows"] if batches else 0,
     }
@@ -394,11 +391,12 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
 
 def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
                                api_url, api_key) -> tuple:
-    """Run each engine's push+query in isolation per step (no parallelism).
+    """Run each engine group end-to-end before starting the next.
 
-    Avoids CPU/IO contention between engines so timing reflects each engine's
-    true cost. Returns (perf_data, preload_times, split_meta) in the same
-    format as _run_headless + _build_coordinator.
+    Engine order: CH-full (+CH-light, shared inserts), then Feldera.
+    Each group sets up fresh (preload), runs all N_STEPS steps, then the
+    next group starts — no cross-engine CPU/IO contention at any step.
+    Returns (perf_data, preload_times, split_meta).
     """
     from collections import defaultdict
     from engine_ch      import ClickHouseFullEngine, ClickHouseMVEngine
@@ -409,14 +407,14 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
         engines.append(ClickHouseFullEngine(
             args.ch_host, args.ch_port, args.ch_database,
             args.ch_user, args.ch_password))
-        if 1 in active_sims:
-            engines.append(ClickHouseMVEngine(
-                args.ch_host, args.ch_port, args.ch_database,
-                args.ch_user, args.ch_password))
     if not skip_feldera:
         engines.append(FelderaFraudEngine(api_url, api_key))
+    if not skip_ch and 1 in active_sims:
+        engines.append(ClickHouseMVEngine(
+            args.ch_host, args.ch_port, CH_DATABASE_LIGHT,
+            args.ch_user, args.ch_password))
 
-    preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_DAYS)
+    preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_ROWS, args.batch_rows)
     batches      = batches[:N_STEPS]
     preload_path = preload["path"] if preload["n_rows"] > 0 else None
 
@@ -424,22 +422,11 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
     for e in engines:
         storage_groups[e.storage_id].append(e)
 
-    print("Loading data …")
-    preload_times = {}
-    for group in storage_groups.values():
-        t0      = time.perf_counter()
-        primary = group[0]
-        for e in group:
-            e.setup(preload_path, Path(args.data_dir))
-        elapsed = time.perf_counter() - t0
-        preload_times[primary.name] = {
-            "total": elapsed,
-            "push":  primary.preload_push_time(),
-            "ivm":   primary.preload_ivm_time(),
-        }
-    print("Load complete.\n")
+    # Drop empty batches (can occur when preload_rows leaves only a short tail).
+    batches = [b for b in batches if b["n_rows"] > 0]
 
-    _dataset_start = datetime.strptime(batches[0]["ts_min"], "%Y-%m-%d %H:%M:%S") if batches else DATA_START
+    first_ts = next((b["ts_min"] for b in batches if b["ts_min"]), None)
+    _dataset_start = datetime.strptime(first_ts, "%Y-%m-%d %H:%M:%S") if first_ts else datetime(1970, 1, 1)
     _max_ts, win_ends = None, []
     for b in batches:
         if _max_ts is None or b["ts_max"] > _max_ts:
@@ -450,33 +437,45 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
     perf_data    = {sid: dict(labels=[], wall_times=[], insert_times=[],
                               refresh_times=[], query_times=[], n_filtered=[])
                     for sid in active_sims}
-    seen_cc_nums = {e.sim_id: set() for e in engines}
-    storage_primaries = {s: grp[0] for s, grp in storage_groups.items()}
+    preload_times = {}
 
-    print(f"Running {N_STEPS} steps sequentially …\n")
-    demo_t0 = time.perf_counter()
+    for storage_key, group in storage_groups.items():
+        primary = group[0]
 
-    for step_idx in range(N_STEPS):
-        rows = _parse_std_rows(batches[step_idx]["path"])
-        ws   = batch_starts[step_idx]
-        we   = win_ends[step_idx]
+        # ── Setup (preload) ────────────────────────────────────────────────
+        print(f"\n{'='*60}")
+        print(f"[{primary.name}] Setting up …")
+        t0 = time.perf_counter()
+        for e in group:
+            e.setup(preload_path, Path(args.data_dir))
+        elapsed = time.perf_counter() - t0
+        preload_times[primary.name] = {
+            "total": elapsed,
+            "push":  primary.preload_push_time(),
+            "ivm":   primary.preload_ivm_time(),
+        }
+        print(f"[{primary.name}] Load complete ({elapsed:.1f}s). Running {N_STEPS} steps …\n")
 
-        for storage_key, group in storage_groups.items():
-            primary = group[0]
-            print(f"[{primary.name}-push] step {step_idx + 1}: pushing {len(rows):,} rows …")
+        # ── All steps for this engine group ───────────────────────────────
+        seen_cc_nums: dict[int, set] = {e.sim_id: set() for e in group}
+        for step_idx in range(len(batches)):
+            rows = _parse_std_rows(batches[step_idx]["path"])
+            ws   = batch_starts[step_idx]
+            we   = win_ends[step_idx]
+
             primary.push_step(rows)
             insert_t  = primary.insert_time()
             refresh_t = primary.refresh_time()
-            print(f"[{primary.name}-push] step {step_idx + 1}: "
-                  f"insert={insert_t*1000:.1f}ms  refresh={refresh_t*1000:.1f}ms")
 
             for engine in group:
                 txns, query_t = engine.query(ws, we)
-                new_txns = [t for t in txns if t["cc_num"] not in seen_cc_nums[engine.sim_id]]
-                seen_cc_nums[engine.sim_id].update(t["cc_num"] for t in txns)
-                print(f"[{engine.name}] step {step_idx + 1}: "
+                seen      = seen_cc_nums[engine.sim_id]
+                new_txns  = [t for t in txns if t["cc_num"] not in seen]
+                seen.update(t["cc_num"] for t in txns)
+                print(f"[{engine.name}] step {step_idx + 1:>3}: "
                       f"insert {insert_t*1000:.1f}ms  IVM {refresh_t*1000:.1f}ms  "
-                      f"query {query_t*1000:.1f}ms  {len(new_txns)} new alerts")
+                      f"query {query_t*1000:.1f}ms  "
+                      f"alerts={len(txns)}  new={len(new_txns)}")
 
                 d = perf_data[engine.sim_id]
                 d["labels"].append(f"batch {step_idx+1}/{N_STEPS}  ({we.date()})")
@@ -486,11 +485,8 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
                 d["query_times"].append(query_t)
                 d["n_filtered"].append(len(new_txns))
 
-        print(f"[sync] step {step_idx + 1} complete\n")
-
     split_meta = {
         "preload_rows":   preload["n_rows"],
-        "preload_days":   PRELOAD_DAYS,
         "n_batches":      len(batches),
         "rows_per_batch": batches[0]["n_rows"] if batches else 0,
     }
@@ -574,7 +570,7 @@ def _print_summary(data: dict, active_sims: list,
 
     _p(f"\n{sep}")
     if split_meta:
-        _p(f"# rows: preload={split_meta['preload_rows']:,} ({split_meta['preload_days']}d)"
+        _p(f"# rows: preload={split_meta['preload_rows']:,}"
            f"  batches={split_meta['n_batches']} × ~{split_meta['rows_per_batch']:,}/step")
     if preload_times:
         parts = []
@@ -653,7 +649,7 @@ def _print_summary(data: dict, active_sims: list,
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
-    global N_STEPS, STEP_INTERVAL, PRELOAD_DAYS
+    global N_STEPS, STEP_INTERVAL, PRELOAD_ROWS
     parser = argparse.ArgumentParser()
     parser.add_argument("--output",       default=None, metavar="FILE",
                         help="Save summary table to this file (e.g. experiments/results.txt)")
@@ -681,7 +677,13 @@ def main():
                              "Default: run all --steps batches.")
     parser.add_argument("--interval",     type=float, default=STEP_INTERVAL,
                         help="Seconds between batches (default 10)")
-    parser.add_argument("--preload-days", type=int,   default=PRELOAD_DAYS)
+    parser.add_argument("--preload-rows",  type=int,   default=PRELOAD_ROWS,
+                        help="Number of rows to load as history before streaming starts "
+                             "(default: 0 — stream everything).")
+    parser.add_argument("--batch-rows",    type=int,   default=None,
+                        help="Fix each streaming batch to exactly this many rows. "
+                             "The actual number of steps is derived from the data. "
+                             "Overrides the even-split default.")
     parser.add_argument("--sequential",   action="store_true",
                         help="Run engines one at a time per step (no parallelism) "
                              "for clean isolated timing measurements")
@@ -732,7 +734,7 @@ def main():
     PLAN_STEPS    = args.steps
     N_STEPS       = min(args.max_steps, PLAN_STEPS) if args.max_steps is not None else PLAN_STEPS
     STEP_INTERVAL = args.interval
-    PRELOAD_DAYS  = args.preload_days
+    PRELOAD_ROWS = args.preload_rows
     if N_STEPS < PLAN_STEPS:
         print(f"[max-steps] running {N_STEPS} of {PLAN_STEPS} planned batches "
               f"(cache layout from --steps {PLAN_STEPS})")

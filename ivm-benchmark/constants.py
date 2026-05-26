@@ -1,11 +1,9 @@
 """
 constants.py — shared constants for the fraud detection benchmark demo.
 
-Fraud thresholds must match replay_at_feldera.sql exactly so results are
+Fraud thresholds must match feldera_views.sql exactly so results are
 comparable across engines.
 """
-
-from datetime import datetime
 
 # ── Fraud signal thresholds (per dataset scale) ────────────────────────────────
 #
@@ -20,9 +18,11 @@ from datetime import datetime
 #
 # Structure: {data_dir_suffix: (gb30, gb45, sv7, disp)}
 THRESHOLD_PROFILES = {
-    "0.1x": (  1,   1,   1,   1),
-    "1x":   (  1,   1,   1,   1),
-    "10x":  (  1,   1,   1,   1),
+    "0.1x": ( 20,  20,  20,  10),
+    "1x":   ( 20,  20,  20,  10),
+    "5x":   ( 20,  20,  20,  10),
+    "10x":  ( 20,  20,  20,  10),
+    "20x":  ( 20,  20,  20,  10),
 }
 
 # Active thresholds — overridden by main() from THRESHOLD_PROFILES based on --data-dir.
@@ -52,18 +52,17 @@ CH_LIGHT_SIGNALS = [
 
 N_STEPS       = 50
 STEP_INTERVAL = 10.0      # seconds between batches
-PRELOAD_DAYS  = 0         # days of history loaded before the benchmark loop
-                          # 0 = stream everything; fraud cards appear ~step 12 with 1x data
-DATA_START    = datetime(2024, 7, 27)
+PRELOAD_ROWS  = 0         # rows of history loaded before the benchmark loop
 DATA_DIR      = "data/0.1x" # default scale; data/1x = standard demo, data/10x = max gap
 
 # ── ClickHouse connection defaults ─────────────────────────────────────────────
 
-CH_HOST     = "localhost"
-CH_PORT     = 8123
-CH_DATABASE = "fraud_detection"
-CH_USERNAME = "demo"
-CH_PASSWORD = ""
+CH_HOST           = "localhost"
+CH_PORT           = 8123
+CH_DATABASE       = "fraud_detection"
+CH_DATABASE_LIGHT = "fraud_detection_light"
+CH_USERNAME       = "demo"
+CH_PASSWORD       = ""
 
 # ── Feldera connection defaults ────────────────────────────────────────────────
 

@@ -127,7 +127,7 @@ Thresholds scale with dataset size (see `THRESHOLD_PROFILES` in `constants.py`):
 
 ## Recency filter
 
-All three engines apply a recency filter: only cards whose most recent transaction falls within **2 hours** of the global dataset max timestamp are counted. This ensures per-step alert counts reflect currently-active fraud rather than the full cumulative history.
+All three engines apply a recency filter: only cards whose most recent transaction falls within **30 minutes** of the global dataset max timestamp are counted. This ensures per-step alert counts reflect currently-active fraud rather than the full cumulative history.
 
 The **representative transaction** for each flagged card is its most recent transaction (`MAX(ts)` per card). CH-full and Feldera both use this for the recency join.
 
@@ -166,15 +166,15 @@ Each step is measured in three phases:
 | `setup_clickhouse_mv.sql` | DDL: `SummingMergeTree` MV backing tables + MVs |
 | `ch_full_head.sql` | CH-full view DDL — RANGE signal CTEs + `best_txn` with distance JOIN |
 | `ch_light_head.sql` | CH-light view DDL — MV signal CTEs + `best_txn` (no distance check) |
-| `ch_view_tail.sql` | Shared view tail — `best_signals` CTE + final SELECT with 2h recency filter |
+| `ch_view_tail.sql` | Shared view tail — `best_signals` CTE + final SELECT with 30-min recency filter |
 | `ch_full_query.sql` | `SELECT n_alerts FROM fraud_alert_count_full` |
 | `ch_light_query.sql` | `SELECT n_alerts FROM fraud_alert_count_light` |
-| `replay_at_feldera.sql` | Full Feldera pipeline — tables, epoch GROUP BY signal views, `fraud_alert_count` |
-| `feldera_query.sql` | `SELECT n_alerts FROM fraud_alert_count` |
+| `replay_at_feldera.sql` | Full Feldera pipeline — tables, epoch GROUP BY signal views, alert details |
+| `feldera_query.sql` | Count distinct flagged cards within 30-min recency window |
 
 The CH view DDL is split into a per-engine head and a shared tail. Python concatenates them at setup time, substituting threshold placeholders (`__GB30__`, `__GB45__`, `__SV7__`, `__DISP__`).
 
-In `replay_at_feldera.sql`, all intermediate views are plain `CREATE VIEW`. Only `fraud_alert_count` is `CREATE MATERIALIZED VIEW` — it's the only view queried externally, and materialization gives the O(1) count read.
+In `replay_at_feldera.sql`, most views are plain `CREATE VIEW`. Three are materialized: `fraud_alert_details` (the enriched per-card alert table), `max_transaction_ts` (single-row max for O(1) recency check), and `fraud_alert_count` is removed — the count is computed at query time in `feldera_query.sql` by joining `fraud_alert_details` against `max_transaction_ts` with the 30-min filter.
 
 ---
 
@@ -254,6 +254,7 @@ python3 plot_results.py results.txt
 | `--mode` | `full` | `full` \| `latency` \| `accuracy` |
 | `--data-dir` | `data/0.1x` | Dataset scale directory |
 | `--steps` | `50` | Number of streaming batches |
+| `--batch-minutes` | none | Each batch covers N minutes of synthetic time (smaller batches = faster IVM per step) |
 | `--interval` | `10` | Seconds between batches |
 | `--preload-days` | `0` | Days of history loaded before streaming starts |
 | `--no-ch` | off | Run Feldera only |
@@ -263,6 +264,25 @@ python3 plot_results.py results.txt
 | `--ch-database` | `fraud_detection` | ClickHouse database name |
 | `--api-url` | `http://localhost:8080` | Feldera host URL |
 | `--api-key` | none | Feldera API key (not needed for local Docker) |
+
+---
+
+## Correctness tests
+
+`tests/test_equivalence.py` verifies two properties after every streaming batch:
+
+1. **CH-full ≅ Feldera** — both use epoch-aligned GROUP BY with exact distance checks and must flag exactly the same set of cards.
+2. **CH-full ⊆ CH-light** — CH-light's over-approximation can only add false positives, never drop a card that CH-full flags.
+
+```bash
+# CH-full vs CH-light only (fast, no Feldera IVM)
+python3 tests/test_equivalence.py --data-dir data/0.1x --steps 10 --no-feldera
+
+# All three engines, small 5-minute batches (keeps IVM cost low per step)
+python3 tests/test_equivalence.py --data-dir data/0.1x --batch-minutes 5 --steps 20
+```
+
+Use `--batch-minutes 5` when testing with Feldera — 5-minute windows produce small batches (~35 rows each) so the IVM commit completes quickly per step.
 
 ---
 

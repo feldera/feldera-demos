@@ -1,5 +1,5 @@
--- Core schema for the fraud detection benchmark.
--- Executed by setup_clickhouse() in clickhouse_selector.py (idempotent).
+-- CH-full schema: base tables only.
+-- Executed by ClickHouseFullEngine.setup() (idempotent — all CREATE ... IF NOT EXISTS).
 
 CREATE TABLE IF NOT EXISTS customers (
     cc_num  UInt64,

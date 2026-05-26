@@ -117,28 +117,26 @@ def parse_results(path: Path, scale_label: str | None = None):
 
     split_meta = {}
     rm = re.search(
-        r"^# rows: preload=([\d,]+) \((\d+)d\)\s+batches=(\d+) × ~([\d,]+)/step",
+        r"^# rows: preload=([\d,]+)\s+batches=(\d+) × ~([\d,]+)/step",
         text, flags=re.MULTILINE,
     )
     if rm:
         split_meta = {
             "preload_rows":   int(rm.group(1).replace(",", "")),
-            "preload_days":   int(rm.group(2)),
-            "n_batches":      int(rm.group(3)),
-            "rows_per_batch": int(rm.group(4).replace(",", "")),
+            "n_batches":      int(rm.group(2)),
+            "rows_per_batch": int(rm.group(3).replace(",", "")),
         }
     else:
-        fm = re.match(r"([\d.]+x)_p(\d+)_s(\d+)_", path.stem)
+        fm = re.match(r"([\d.]+x)_pr(\d+)_s(\d+)_", path.stem)
         if fm:
-            scale_dir, preload_days, n_steps = fm.group(1), fm.group(2), fm.group(3)
+            scale_dir, preload_rows, n_steps = fm.group(1), fm.group(2), fm.group(3)
             meta_path = (Path(__file__).parent / "data" / scale_dir / ".cache"
-                         / f"p{preload_days}_s{n_steps}" / "meta.json")
+                         / f"pr{preload_rows}_s{n_steps}" / "meta.json")
             if meta_path.exists():
                 import json
                 meta = json.loads(meta_path.read_text())
                 split_meta = {
                     "preload_rows": meta["preload"]["n_rows"],
-                    "preload_days": int(preload_days),
                     "n_batches":    len(meta["batches"]),
                     "rows_per_batch": meta["batches"][0]["n_rows"] if meta["batches"] else 0,
                 }
@@ -161,7 +159,7 @@ def plot_metric(df: "pd.DataFrame", col: str, label: str,
     for s in scales:
         sm = split_metas.get(s) or {}
         if sm:
-            header = (f"  ·  preload: {sm['preload_rows']:,} rows ({sm['preload_days']}d)"
+            header = (f"  ·  preload: {sm['preload_rows']:,} rows"
                       f"  ·  streaming: {sm['n_batches']} steps × ~{sm['rows_per_batch']:,} rows/step")
             break
     # Per-engine preload-load times across all scales (first occurrence wins).

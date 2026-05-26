@@ -7,7 +7,7 @@ All Feldera interactions go through the high-level feldera.pipeline.Pipeline API
 Timing model inside push_step():
 
   _t_start      — before start_transaction()
-  _t_data_ready — after all chunks pushed (data buffered in Feldera)
+  _t_data_ready — after wait_for_ingestion() returns (all rows in pipeline)
   _t_commit     — after commit_transaction() returns (IVM complete)
 
   insert_time()  = _t_data_ready - _t_start
@@ -43,12 +43,13 @@ DEFAULT_API_KEY = _env.get("FELDERA_API_KEY", os.getenv("FELDERA_API_KEY", "")) 
 
 # ── SQL ────────────────────────────────────────────────────────────────────────
 
-_SQL_DIR   = Path(__file__).parent / "sql"
-_SQL_FILE  = _SQL_DIR / "replay_at_feldera.sql"
-_QUERY_SQL = (_SQL_DIR / "feldera_query.sql").read_text()
+_SQL_DIR  = Path(__file__).parent / "sql"
+_TABLES_FILE = _SQL_DIR / "feldera_tables.sql"
+_VIEWS_FILE  = _SQL_DIR / "feldera_views.sql"
+_QUERY    = (_SQL_DIR / "feldera_query.sql").read_text().strip()
 
-_CHUNK_SIZE   = 1_000_000   # rows per HTTP POST — keeps memory bounded during large preloads
-_PUSH_WORKERS = 16          # parallel HTTP POST threads during push
+_CHUNK_SIZE   = 250_000   # rows per HTTP POST — keeps memory bounded during large preloads
+_PUSH_WORKERS = 10          # parallel HTTP POST threads during push
 
 
 # ── Low-level Feldera engine ───────────────────────────────────────────────────
@@ -59,7 +60,7 @@ class _FelderaEngine:
     def __init__(self, api_url: str, api_key):
         self._client       = FelderaClient(url=api_url, api_key=api_key, timeout=None)
         self._pipeline     = None          # feldera.pipeline.Pipeline
-        self._txn_id       = None
+        self._pre_count    = 0
         self._t_start      = 0.0
         self._t_data_ready = 0.0
         self._t_commit     = 0.0
@@ -68,9 +69,7 @@ class _FelderaEngine:
 
     def setup(self, sql: str, runtime_config: RuntimeConfig | None = None) -> None:
         cfg = runtime_config or RuntimeConfig(
-            min_batch_size_records=0,
-            max_buffering_delay_usecs=0,
-            storage=False,
+            workers=16
         )
         self._pipeline = (
             PipelineBuilder(self._client, _PIPELINE, sql=sql, runtime_config=cfg)
@@ -86,7 +85,7 @@ class _FelderaEngine:
                 self._pipeline.input_json(
                     table, chunk,
                     update_format=update_format,
-                    force=True, wait=True,
+                    force=True, wait=False,
                 )
                 return
             except Exception:
@@ -107,22 +106,29 @@ class _FelderaEngine:
     # ── Transaction ────────────────────────────────────────────────────────────
 
     def start_transaction(self) -> None:
-        self._t_start = time.perf_counter()
-        self._txn_id  = self._pipeline.start_transaction()
+        self._t_start   = time.perf_counter()
+        self._pre_count = self._pipeline.stats().global_metrics.total_processed_records
+        self._pipeline.start_transaction()
+
+    def wait_for_ingestion(self, n_rows: int) -> None:
+        while True:
+            cur = self._pipeline.stats().global_metrics.total_processed_records
+            if cur - self._pre_count >= n_rows:
+                break
+            time.sleep(0.02)
+        self._t_data_ready = time.perf_counter()
 
     def commit_transaction(self) -> None:
-        # SDK polls at 1-second intervals — too coarse for latency measurement.
-        # Commit without wait, then poll at 20 ms for accurate IVM timing.
-        self._pipeline.commit_transaction(self._txn_id, wait=False)
+        # IVM already ran (wait_for_ingestion). We just need transaction_id to
+        # advance. Bypass the SDK's 1s polling floor with our own 20ms loop.
+        pre_txn = self._pipeline.client.get_pipeline_stats(self._pipeline.name)["global_metrics"]["transaction_id"]
+        self._pipeline.commit_transaction(wait=False)
         while True:
-            stats = self._pipeline.client.get_pipeline_stats(self._pipeline.name)
-            if stats["global_metrics"]["transaction_id"] != self._txn_id:
+            gm = self._pipeline.client.get_pipeline_stats(self._pipeline.name)["global_metrics"]
+            if gm["transaction_id"] != pre_txn and gm.get("transaction_status") != "CommitInProgress":
                 break
             time.sleep(0.02)
         self._t_commit = time.perf_counter()
-
-    def mark_data_ready(self) -> None:
-        self._t_data_ready = time.perf_counter()
 
     @property
     def insert_time(self) -> float:
@@ -145,7 +151,7 @@ def setup_and_start(api_url: str, api_key,
                     prio: dict) -> _FelderaEngine:
     """Deploy the fraud-detection SQL with substituted thresholds and priorities; return engine."""
     sql = (
-        _SQL_FILE.read_text()
+        (_TABLES_FILE.read_text() + "\n" + _VIEWS_FILE.read_text())
         .replace("HAVING COUNT(*) >= __GB30__", f"HAVING COUNT(*) >= {gb30}")
         .replace("HAVING COUNT(*) >= __GB45__", f"HAVING COUNT(*) >= {gb45}")
         .replace("HAVING COUNT(*) >= __SV7__",  f"HAVING COUNT(*) >= {sv7}")
@@ -178,60 +184,31 @@ def _read_customers(data_dir) -> list[dict]:
 # ── Query helper ───────────────────────────────────────────────────────────────
 
 def select_from_feldera(engine: _FelderaEngine,
-                        win_start: datetime, win_end: datetime,  # noqa: ARG001
+                        win_start: datetime, win_end: datetime,
                         limit: int = None) -> tuple[list[dict], float]:
-    """Read pre-computed fraud alerts from the materialized view.
-
-    Two query shapes:
-      (a) count-only: single row with 'n_alerts' — synthesize N stub dicts
-          with deterministic cc_nums so the demo's seen_cc_nums dedup reports
-          the per-step delta instead of cumulative count.
-      (b) full rows with cc_num/signal_type/...
-    """
+    """Count fraud alerts whose latest transaction falls within [win_start, win_end)."""
+    sql = _QUERY
     t0      = time.perf_counter()
-    rows    = engine.query(_QUERY_SQL)
+    rows    = engine.query(sql)
     elapsed = time.perf_counter() - t0
 
     if not rows:
         return [], elapsed
 
-    if len(rows) == 1 and "n_alerts" in rows[0] and "cc_num" not in rows[0]:
-        n = int(rows[0]["n_alerts"])
-        results = [{
-            "cc_num":          -(i + 1),
-            "ts":              win_start,
-            "amt":             0.0,
-            "category":        "unknown",
-            "shipping_lat":    0.0,
-            "shipping_long":   0.0,
-            "distance":        0.0,
-            "avg_7day":        0.0,
-            "signal_type":     "count",
-            "confidence":      "high",
-            "review_priority": 0.0,
-        } for i in range(n)]
-        return (results[:limit] if limit else results), elapsed
-
-    results = []
-    for row in sorted(rows,
-                      key=lambda r: SIGNAL_PRIORITY.get(r["signal_type"], 0) * 1000
-                                    + min(float(r.get("amt") or 0), 9999),
-                      reverse=True):
-        results.append({
-            "cc_num":          row["cc_num"],
-            "ts":              row.get("ts", win_start),
-            "amt":             float(row.get("amt") or row.get("alert_amt") or 0),
-            "category":        row.get("category", "unknown"),
-            "shipping_lat":    float(row.get("shipping_lat") or 0),
-            "shipping_long":   float(row.get("shipping_long") or 0),
-            "distance":        float(row.get("distance") or 0),
-            "avg_7day":        float(row.get("avg_7day") or 0),
-            "signal_type":     row["signal_type"],
-            "confidence":      "high",
-            "review_priority": SIGNAL_PRIORITY.get(row["signal_type"], 1) * 1000
-                               + min(float(row.get("amt") or 0), 9999),
-        })
-
+    n = int(rows[0]["n_alerts"])
+    results = [{
+        "cc_num":          -(i + 1),
+        "ts":              win_start,
+        "amt":             0.0,
+        "category":        "unknown",
+        "shipping_lat":    0.0,
+        "shipping_long":   0.0,
+        "distance":        0.0,
+        "avg_7day":        0.0,
+        "signal_type":     "count",
+        "confidence":      "high",
+        "review_priority": 0.0,
+    } for i in range(n)]
     return (results[:limit] if limit else results), elapsed
 
 
@@ -266,25 +243,26 @@ class FelderaFraudEngine(FraudEngine):
             prio=_c.SIGNAL_PRIORITY,
         )
         customers = _read_customers(data_dir)
-        txn_rows  = _parse_rows(preload_path) if preload_path is not None else []
 
         t0 = time.perf_counter()
         self._engine.start_transaction()
-        self._engine.push("CUSTOMER",    customers)
-        self._engine.push("TRANSACTION", txn_rows)
-        self._engine.mark_data_ready()
+        self._engine.push("CUSTOMER", customers)
+        n_txn = 0
+        if preload_path is not None:
+            n_txn = _stream_push(self._engine, preload_path)
+        self._engine.wait_for_ingestion(len(customers) + n_txn)
         t_push_done = time.perf_counter()
         self._engine.commit_transaction()
         t_commit_done = time.perf_counter()
         self._preload_push_t = t_push_done   - t0
         self._preload_ivm_t  = t_commit_done - t_push_done
-        print(f"[feldera] {len(customers):,} customers + {len(txn_rows):,} preload rows"
+        print(f"[feldera] {len(customers):,} customers + {n_txn:,} preload rows"
               f"  push={self._preload_push_t:.1f}s  ivm={self._preload_ivm_t:.1f}s")
 
     def push_step(self, rows: list[dict]) -> None:
         self._engine.start_transaction()
         self._engine.push("TRANSACTION", rows)
-        self._engine.mark_data_ready()
+        self._engine.wait_for_ingestion(len(rows))
         self._engine.commit_transaction()
 
     def insert_time(self) -> float:
@@ -298,6 +276,46 @@ class FelderaFraudEngine(FraudEngine):
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _stream_push(engine: _FelderaEngine, path: Path) -> int:
+    """Stream-push a preload CSV into Feldera without loading it all into memory.
+
+    Reads _CHUNK_SIZE rows at a time and submits each chunk to the engine's
+    thread pool, keeping at most _PUSH_WORKERS chunks in flight simultaneously.
+    Returns total row count pushed.
+    """
+    total = 0
+    chunk: list[dict] = []
+    pending = []
+
+    def _flush(c):
+        engine.push("TRANSACTION", c)
+
+    with ThreadPoolExecutor(max_workers=_PUSH_WORKERS) as pool:
+        with open(path, newline="") as f:
+            for raw in csv.DictReader(f):
+                chunk.append({
+                    "category":      raw["category"],
+                    "ts":            raw["ts"],
+                    "amt":           float(raw["amt"])           if raw["amt"]           else None,
+                    "cc_num":        int(raw["cc_num"]),
+                    "shipping_lat":  float(raw["shipping_lat"])  if raw["shipping_lat"]  else None,
+                    "shipping_long": float(raw["shipping_long"]) if raw["shipping_long"] else None,
+                })
+                if len(chunk) >= _CHUNK_SIZE:
+                    pending.append(pool.submit(_flush, chunk))
+                    total += len(chunk)
+                    chunk = []
+                    if len(pending) >= _PUSH_WORKERS:
+                        pending.pop(0).result()
+        if chunk:
+            pending.append(pool.submit(_flush, chunk))
+            total += len(chunk)
+        for f in pending:
+            f.result()
+
+    return total
+
 
 def _parse_rows(path: Path) -> list[dict]:
     rows = []

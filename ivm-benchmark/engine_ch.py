@@ -8,9 +8,10 @@ ClickHouseFullEngine  (sim 0, "CH-full")
   latency grows with history size.
 
 ClickHouseMVEngine  (sim 1, "CH-light")
-  Secondary.  SummingMergeTree MVs provide O(delta) query cost for three
-  signals; repeated_displacement uses worst-case approximation (no customer JOIN, no distance check).
-  setup() and push_step() are no-ops — ClickHouseFullEngine does both.
+  Independent engine with its own database (fraud_detection_light).
+  SummingMergeTree MVs provide O(delta) query cost for three signals;
+  repeated_displacement uses worst-case approximation (no distance check).
+  Runs its own setup(), preload, and push_step() in parallel with CH-full.
 """
 
 import csv
@@ -23,16 +24,15 @@ import constants as _c
 from engine_base import FraudEngine
 
 _SQL_DIR      = Path(__file__).parent / "sql"
-_CHUNK_SIZE   = 1_000_000   # rows per INSERT — keeps memory bounded during large preloads
-_PUSH_WORKERS = 16           # parallel INSERT threads during preload
+_CHUNK_SIZE   = 250_000   # rows per INSERT — keeps memory bounded during large preloads
+_PUSH_WORKERS = 10           # parallel INSERT threads during preload
 
-_VIEW_TAIL      = (_SQL_DIR / "ch_view_tail.sql").read_text()
-_FULL_VIEW_DDL  = (_SQL_DIR / "ch_full_head.sql").read_text()  + _VIEW_TAIL.replace("__CONFIDENCE__", "high")
-_LIGHT_VIEW_DDL = (_SQL_DIR / "ch_light_head.sql").read_text() + _VIEW_TAIL.replace("__CONFIDENCE__", "medium")
-_FULL_COUNT_DDL  = "CREATE OR REPLACE VIEW fraud_alert_count_full  AS SELECT count(DISTINCT cc_num) AS n_alerts FROM fraud_signals_full"
-_LIGHT_COUNT_DDL = "CREATE OR REPLACE VIEW fraud_alert_count_light AS SELECT count(DISTINCT cc_num) AS n_alerts FROM fraud_signals_light"
-_FULL_QUERY     = (_SQL_DIR / "ch_full_query.sql").read_text()
-_LIGHT_QUERY    = (_SQL_DIR / "ch_light_query.sql").read_text()
+_FULL_TABLES_SQL  = (_SQL_DIR / "ch_full_tables.sql").read_text()
+_FULL_VIEWS_SQL   = (_SQL_DIR / "ch_full_views.sql").read_text()
+_LIGHT_TABLES_SQL = (_SQL_DIR / "ch_light_tables.sql").read_text()
+_LIGHT_VIEWS_SQL  = (_SQL_DIR / "ch_light_views.sql").read_text()
+_FULL_QUERY       = (_SQL_DIR / "ch_full_query.sql").read_text().strip()
+_LIGHT_QUERY      = (_SQL_DIR / "ch_light_query.sql").read_text().strip()
 
 
 def _substitute(sql: str) -> str:
@@ -51,6 +51,15 @@ def _substitute(sql: str) -> str:
 
 # ── Low-level helpers ──────────────────────────────────────────────────────────
 
+def _exec_sql(client, sql: str) -> None:
+    """Execute a SQL string split on ';', skipping comment-only blocks."""
+    for stmt in sql.split(";"):
+        lines = [l for l in stmt.splitlines() if not l.strip().startswith("--")]
+        stmt  = "\n".join(lines).strip()
+        if stmt:
+            client.command(stmt)
+
+
 def _connect(host: str, port: int, database: str, user: str, password: str):
     try:
         import clickhouse_connect
@@ -60,15 +69,8 @@ def _connect(host: str, port: int, database: str, user: str, password: str):
     tmp = clickhouse_connect.get_client(
         host=host, port=port, username=user, password=password, database="default")
     tmp.command(f"CREATE DATABASE IF NOT EXISTS {database}")
-    client = clickhouse_connect.get_client(
+    return clickhouse_connect.get_client(
         host=host, port=port, username=user, password=password, database=database)
-
-    for stmt in (_SQL_DIR / "setup_clickhouse.sql").read_text().split(";"):
-        lines = [l for l in stmt.splitlines() if not l.strip().startswith("--")]
-        stmt  = "\n".join(lines).strip()
-        if stmt:
-            client.command(stmt)
-    return client
 
 
 def _insert(conn: dict, table: str, columns: list[str], rows: list[list]) -> None:
@@ -85,22 +87,57 @@ def _insert(conn: dict, table: str, columns: list[str], rows: list[list]) -> Non
             f.result()
 
 
+def _stream_insert(conn: dict, table: str, columns: list[str], csv_path: Path,
+                   row_parser) -> int:
+    """Stream-insert from CSV in parallel chunks without loading all rows into memory.
+
+    Reads _CHUNK_SIZE rows at a time and submits each chunk to a thread pool,
+    keeping at most _PUSH_WORKERS inserts in flight simultaneously.
+    """
+    import clickhouse_connect
+    total = 0
+
+    def _flush(c):
+        client = clickhouse_connect.get_client(**conn)
+        client.insert(table, c, column_names=columns)
+
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        chunk: list = []
+        with ThreadPoolExecutor(max_workers=_PUSH_WORKERS) as pool:
+            pending = []
+            for raw in reader:
+                chunk.append(row_parser(raw))
+                if len(chunk) >= _CHUNK_SIZE:
+                    pending.append(pool.submit(_flush, chunk))
+                    total += len(chunk)
+                    chunk = []
+                    # Drain one future if too many in flight to bound memory
+                    if len(pending) >= _PUSH_WORKERS:
+                        pending.pop(0).result()
+            if chunk:
+                pending.append(pool.submit(_flush, chunk))
+                total += len(chunk)
+            for f in pending:
+                f.result()
+    return total
+
+
 def _to_ch_rows(rows: list[dict]) -> list[list]:
     """Convert standardized push_step() dicts to list[list] for CH INSERT."""
-    out = []
-    for r in rows:
-        ts = r["ts"]
-        if isinstance(ts, str):
-            ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-        out.append([
+    _fi = datetime.fromisoformat
+    _utc = timezone.utc
+    return [
+        [
             r["cc_num"],
-            ts,
+            _fi(r["ts"]).replace(tzinfo=_utc),
             r["amt"]           if r["amt"]           is not None else 0.0,
             r["category"],
             r["shipping_lat"]  if r["shipping_lat"]  is not None else 0.0,
             r["shipping_long"] if r["shipping_long"] is not None else 0.0,
-        ])
-    return out
+        ]
+        for r in rows
+    ]
 
 
 def _parse_result(result) -> list[dict]:
@@ -187,21 +224,11 @@ class ClickHouseFullEngine(_ClickHouseBase):
 
     def setup(self, preload_path: "Path | None", data_dir: Path) -> None:
         client = self._get_client()
-        print("[CH] Truncating tables …")
+        _exec_sql(client, _FULL_TABLES_SQL)
         client.command("TRUNCATE TABLE IF EXISTS transactions")
         client.command("TRUNCATE TABLE IF EXISTS customers")
+        print("[CH] Tables ready.")
 
-        # Create MV schema (idempotent) and clear MV backing tables.
-        for stmt in (_SQL_DIR / "setup_clickhouse_mv.sql").read_text().split(";"):
-            lines = [l for l in stmt.splitlines() if not l.strip().startswith("--")]
-            stmt  = "\n".join(lines).strip()
-            if stmt:
-                client.command(stmt)
-        for tbl in ("gb30_counts", "gb45_counts", "sv7_counts", "disp_counts"):
-            client.command(f"TRUNCATE TABLE IF EXISTS {tbl}")
-        print("[CH] MV tables ready.")
-
-        # Load customers.
         rows = []
         with open(Path(data_dir) / "customers.csv", newline="") as f:
             for row in csv.DictReader(f):
@@ -214,59 +241,92 @@ class ClickHouseFullEngine(_ClickHouseBase):
         _insert(self._conn_kwargs(), "customers", ["cc_num", "name", "lat", "long"], rows)
         print(f"[CH] {len(rows):,} customers inserted.")
 
-        # Load preload transactions.
         if preload_path is not None:
-            rows = []
-            with open(preload_path, newline="") as f:
-                for row in csv.DictReader(f):
-                    rows.append([
-                        int(row["cc_num"]),
-                        datetime.strptime(row["ts"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc),
-                        float(row["amt"])           if row["amt"]           else 0.0,
-                        row["category"],
-                        float(row["shipping_lat"])  if row["shipping_lat"]  else 0.0,
-                        float(row["shipping_long"]) if row["shipping_long"] else 0.0,
-                    ])
+            def _parse_txn(row):
+                return [
+                    int(row["cc_num"]),
+                    datetime.strptime(row["ts"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc),
+                    float(row["amt"])           if row["amt"]           else 0.0,
+                    row["category"],
+                    float(row["shipping_lat"])  if row["shipping_lat"]  else 0.0,
+                    float(row["shipping_long"]) if row["shipping_long"] else 0.0,
+                ]
             t0 = time.perf_counter()
-            _insert(self._conn_kwargs(), "transactions",
-                    ["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"], rows)
+            n = _stream_insert(self._conn_kwargs(), "transactions",
+                               ["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"],
+                               preload_path, _parse_txn)
             self._preload_ins_t = time.perf_counter() - t0
-            print(f"[CH] {len(rows):,} preload rows in {self._preload_ins_t:.1f}s")
+            print(f"[CH] {n:,} preload rows in {self._preload_ins_t:.1f}s")
 
-        # Create fraud_signals_full view with current thresholds and priorities.
-        ddl = _substitute(_FULL_VIEW_DDL)
-        client.command(ddl)
-        client.command(_FULL_COUNT_DDL)
+        _exec_sql(client, _substitute(_FULL_VIEWS_SQL))
         print("[CH] fraud_signals_full + count views created.")
 
     def push_step(self, rows: list[dict]) -> None:
         t0 = time.perf_counter()
-        _insert(self._conn_kwargs(), "transactions",
-                ["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"],
-                _to_ch_rows(rows))
+        self._get_client().insert("transactions", _to_ch_rows(rows),
+            column_names=["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"])
         self._insert_t = time.perf_counter() - t0
 
-    def query(self, _win_start: datetime, _win_end: datetime) -> tuple[list[dict], float]:
-        t0 = time.perf_counter()
+    def query(self, win_start: datetime, win_end: datetime) -> tuple[list[dict], float]:
+        t0  = time.perf_counter()
         result = self._get_client().query(_FULL_QUERY)
         return _parse_result(result), time.perf_counter() - t0
 
 
 class ClickHouseMVEngine(_ClickHouseBase):
-    sim_id = 1
-    name   = "CH-light"
+    sim_id     = 1
+    name       = "CH-light"
+    storage_id = "clickhouse_light"   # own storage group → runs all steps independently
 
-    def setup(self, _preload_path: "Path | None", _data_dir: Path) -> None:
-        client = self._get_client()   # ClickHouseFullEngine already set up schema
-        ddl = _substitute(_LIGHT_VIEW_DDL)
-        client.command(ddl)
-        client.command(_LIGHT_COUNT_DDL)
-        print("[CH] fraud_signals_light + count views created.")
+    def setup(self, preload_path: "Path | None", data_dir: Path) -> None:
+        client = self._get_client()
+        _exec_sql(client, _FULL_TABLES_SQL)
+        _exec_sql(client, _LIGHT_TABLES_SQL)
+        client.command("TRUNCATE TABLE IF EXISTS transactions")
+        client.command("TRUNCATE TABLE IF EXISTS customers")
+        for tbl in ("gb30_counts", "gb45_counts", "sv7_counts", "disp_counts"):
+            client.command(f"TRUNCATE TABLE IF EXISTS {tbl}")
+        print("[CH-light] Tables ready.")
 
-    def push_step(self, _rows: list[dict]) -> None:
-        pass   # MVs update automatically on ClickHouseFullEngine's INSERT
+        rows = []
+        with open(Path(data_dir) / "customers.csv", newline="") as f:
+            for row in csv.DictReader(f):
+                rows.append([
+                    int(row["cc_num"]),
+                    row["name"],
+                    float(row["lat"])  if row["lat"]  else 0.0,
+                    float(row["long"]) if row["long"] else 0.0,
+                ])
+        _insert(self._conn_kwargs(), "customers", ["cc_num", "name", "lat", "long"], rows)
+        print(f"[CH-light] {len(rows):,} customers inserted.")
 
-    def query(self, _win_start: datetime, _win_end: datetime) -> tuple[list[dict], float]:
+        if preload_path is not None:
+            def _parse_txn(row):
+                return [
+                    int(row["cc_num"]),
+                    datetime.strptime(row["ts"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc),
+                    float(row["amt"])           if row["amt"]           else 0.0,
+                    row["category"],
+                    float(row["shipping_lat"])  if row["shipping_lat"]  else 0.0,
+                    float(row["shipping_long"]) if row["shipping_long"] else 0.0,
+                ]
+            t0 = time.perf_counter()
+            n = _stream_insert(self._conn_kwargs(), "transactions",
+                               ["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"],
+                               preload_path, _parse_txn)
+            self._preload_ins_t = time.perf_counter() - t0
+            print(f"[CH-light] {n:,} preload rows in {self._preload_ins_t:.1f}s")
+
+        _exec_sql(client, _substitute(_LIGHT_VIEWS_SQL))
+        print("[CH-light] fraud_signals_light + count views created.")
+
+    def push_step(self, rows: list[dict]) -> None:
         t0 = time.perf_counter()
+        self._get_client().insert("transactions", _to_ch_rows(rows),
+            column_names=["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"])
+        self._insert_t = time.perf_counter() - t0
+
+    def query(self, win_start: datetime, win_end: datetime) -> tuple[list[dict], float]:
+        t0  = time.perf_counter()
         result = self._get_client().query(_LIGHT_QUERY)
         return _parse_result(result), time.perf_counter() - t0

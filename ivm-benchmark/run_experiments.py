@@ -3,7 +3,7 @@
 run_experiments.py — Sweep runner for the Feldera vs ClickHouse benchmark.
 
 Runs demo_runner.py headlessly across combinations of:
-  --preload-days  (history loaded before streaming)
+  --preload-rows  (rows of history loaded before streaming)
   --steps         (number of streaming batches)
   --engines       1 = Feldera only
                   2 = CH-full + Feldera  (latency story)
@@ -54,24 +54,27 @@ ENGINE_PRESETS = {
 }
 
 
-def _run_one(preload: int, steps: int, engines: str, data_dir: str,
-             extra_args: list[str]) -> tuple[bool, float]:
+def _run_one(preload_rows: int, steps: int, engines: str, data_dir: str,
+             extra_args: list[str],
+             batch_rows: int | None = None) -> tuple[bool, float]:
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     flags, label_short = ENGINE_PRESETS[engines]
-    scale = Path(data_dir).name
-    tag   = f"{scale}_p{preload}_s{steps}_{engines}"
-    out   = EXPERIMENTS_DIR / f"{tag}.txt"
+    scale  = Path(data_dir).name
+    br_tag = f"_br{batch_rows}" if batch_rows is not None else ""
+    tag    = f"{scale}_pr{preload_rows}_s{steps}{br_tag}_{engines}"
+    out    = EXPERIMENTS_DIR / f"{tag}.txt"
 
     cmd = [
         sys.executable, "demo_runner.py",
-        "--preload-days", str(preload),
+        "--preload-rows", str(preload_rows),
         "--steps",        str(steps),
         "--data-dir",     data_dir,
         "--output",       str(out),
     ] + flags + extra_args
 
-    label = f"preload={preload}d  steps={steps}  engines={label_short}  scale={scale}"
+    br_label = f"  batch={batch_rows}rows" if batch_rows is not None else ""
+    label = f"preload={preload_rows}rows  steps={steps}{br_label}  engines={label_short}  scale={scale}"
     print(f"\n{'━'*60}")
     print(f"  {label}")
     print(f"  output → {out}")
@@ -89,8 +92,8 @@ def _run_one(preload: int, steps: int, engines: str, data_dir: str,
 
 def main():
     parser = argparse.ArgumentParser(description="Sweep runner for the fraud detection benchmark")
-    parser.add_argument("--preload",   type=int, nargs="+", default=[0, 30],
-                        metavar="DAYS",  help="Preload days to sweep (default: 0 30)")
+    parser.add_argument("--preload-rows",  type=int, nargs="+", default=[0],
+                        metavar="N",     help="Preload row counts to sweep (default: 0)")
     parser.add_argument("--steps",     type=int, nargs="+", default=[40],
                         metavar="N",     help="Step counts to sweep (default: 40)")
     parser.add_argument("--engines",   type=str, nargs="+", default=["all"],
@@ -102,48 +105,60 @@ def main():
                              "all (CH-full+CH-light+Feldera). (default: all)")
     parser.add_argument("--data-dir",  default="data/0.1x",
                         help="Dataset scale (default: data/0.1x)")
-    parser.add_argument("--mock",      action="store_true",
+    parser.add_argument("--mock",          action="store_true",
                         help="Pass --mock to demo_runner (no DB needed)")
-    parser.add_argument("--interval",  type=float, default=None,
+    parser.add_argument("--batch-rows",    type=int, default=None,
+                        help="Fix each streaming batch to exactly this many rows (passed to demo_runner)")
+    parser.add_argument("--interval",      type=float, default=None,
                         help="Seconds between batches (passed to demo_runner)")
-    parser.add_argument("--max-steps", type=int, default=None,
+    parser.add_argument("--max-steps",     type=int, default=None,
                         help="Halt streaming after this many steps regardless of "
                              "--steps. Use to keep the cache layout from a larger "
                              "--steps value but stop early (e.g. --steps 5000 "
                              "--max-steps 10).")
+    parser.add_argument("--sequential",    action="store_true",
+                        help="Run engines one at a time per step (passed to demo_runner)")
     args = parser.parse_args()
 
     extra = []
     if args.mock:
         extra += ["--mock"]
+    if args.batch_rows is not None:
+        extra += ["--batch-rows", str(args.batch_rows)]
     if args.interval is not None:
         extra += ["--interval", str(args.interval)]
     if args.max_steps is not None:
         extra += ["--max-steps", str(args.max_steps)]
+    if args.sequential:
+        extra += ["--sequential"]
 
-    combos  = list(product(args.preload, args.steps, args.engines))
+    br = args.batch_rows
+
+    combos  = list(product(args.preload_rows, args.steps, args.engines))
     n_total = len(combos)
     print(f"\nRunning {n_total} experiment(s)  [mem limit: {MEM_LIMIT_GB} GB per process]:")
-    for preload, steps, engines in combos:
-        scale = Path(args.data_dir).name
-        print(f"  preload={preload}d  steps={steps}  engines={ENGINE_PRESETS[engines][1]}  scale={scale}")
+    for preload_rows, steps, engines in combos:
+        scale    = Path(args.data_dir).name
+        br_label = f"  batch={br}rows" if br is not None else ""
+        print(f"  preload={preload_rows}rows  steps={steps}{br_label}  engines={ENGINE_PRESETS[engines][1]}  scale={scale}")
 
     t_sweep = time.perf_counter()
     results = []
-    for preload, steps, engines in combos:
-        ok, elapsed = _run_one(preload, steps, engines, args.data_dir, extra)
-        results.append((preload, steps, engines, ok, elapsed))
+    for preload_rows, steps, engines in combos:
+        ok, elapsed = _run_one(preload_rows, steps, engines, args.data_dir, extra, batch_rows=br)
+        results.append((preload_rows, steps, engines, ok, elapsed))
 
     # ── Summary ────────────────────────────────────────────────────────────
     total_elapsed = time.perf_counter() - t_sweep
     print(f"\n{'━'*60}")
     print(f"  SWEEP COMPLETE  —  {n_total} experiments in {total_elapsed:.1f}s")
     print(f"{'━'*60}")
-    for preload, steps, engines, ok, elapsed in results:
-        scale = Path(args.data_dir).name
-        tag   = f"{scale}_p{preload}_s{steps}_{engines}"
+    for preload_rows, steps, engines, ok, elapsed in results:
+        scale  = Path(args.data_dir).name
+        br_tag = f"_br{br}" if br is not None else ""
+        tag    = f"{scale}_pr{preload_rows}_s{steps}{br_tag}_{engines}"
         status = "✓" if ok else "✗"
-        print(f"  {status}  {tag:<40}  {elapsed:6.1f}s")
+        print(f"  {status}  {tag:<50}  {elapsed:6.1f}s")
     print()
 
     n_failed = sum(1 for *_, ok, _ in results if not ok)
