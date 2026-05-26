@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
-import constants as _c
 from engine_base import FraudEngine
 
 _SQL_DIR      = Path(__file__).parent / "sql"
@@ -24,20 +23,6 @@ _PUSH_WORKERS = 10           # parallel INSERT threads during preload
 _FULL_TABLES_SQL = (_SQL_DIR / "ch_full_tables.sql").read_text()
 _FULL_VIEWS_SQL  = (_SQL_DIR / "ch_full_views.sql").read_text()
 _FULL_QUERY      = (_SQL_DIR / "ch_full_query.sql").read_text().strip()
-
-
-def _substitute(sql: str) -> str:
-    """Replace threshold and priority placeholders from constants."""
-    return (sql
-        .replace("__GB30__",      str(_c.GIFT_BURST_30D_THRESHOLD))
-        .replace("__GB45__",      str(_c.GIFT_BURST_45D_THRESHOLD))
-        .replace("__SV7__",       str(_c.SPEND_VELOCITY_7D_THRESHOLD))
-        .replace("__DISP__",      str(_c.DISPLACEMENT_THRESHOLD))
-        .replace("__PRIO_GB30__", str(_c.SIGNAL_PRIORITY["gift_card_burst_30d"]))
-        .replace("__PRIO_GB45__", str(_c.SIGNAL_PRIORITY["gift_card_burst_45d"]))
-        .replace("__PRIO_SV7__",  str(_c.SIGNAL_PRIORITY["spend_velocity_7d"]))
-        .replace("__PRIO_DISP__", str(_c.SIGNAL_PRIORITY["repeated_displacement"]))
-    )
 
 
 # ── Low-level helpers ──────────────────────────────────────────────────────────
@@ -249,7 +234,7 @@ class ClickHouseFullEngine(_ClickHouseBase):
             self._preload_ins_t = time.perf_counter() - t0
             print(f"[CH] {n:,} preload rows in {self._preload_ins_t:.1f}s")
 
-        _exec_sql(client, _substitute(_FULL_VIEWS_SQL))
+        _exec_sql(client, _FULL_VIEWS_SQL)
         print("[CH] fraud_signals_full + count views created.")
 
     def push_step(self, rows: list[dict]) -> None:

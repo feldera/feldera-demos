@@ -1,5 +1,6 @@
 -- CH-full views: fraud_signals_full (full O(N) scan).
--- Thresholds/priorities are substituted by Python at setup time (__GB30__ etc.).
+-- Thresholds/priorities use ClickHouse lambda UDFs defined in ch_full_tables.sql (GB30() etc.).
+-- Window RANGE bounds are literal seconds (ClickHouse rejects non-literal RANGE offsets).
 -- Mirrors the Feldera architecture: all rolling aggregates computed once in
 -- TRANSACTION_WITH_AGGREGATES using named WINDOW clauses — signal CTEs are WHERE filters.
 --
@@ -42,34 +43,34 @@ TRANSACTION_WITH_AGGREGATES AS (
         sum(if(distance > 20.0, amt, 0))                 OVER window_3day  AS disp_sum_3day
     FROM TRANSACTION_WITH_DISTANCE
     WINDOW
-        window_3day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 259200  PRECEDING AND CURRENT ROW),
-        window_7day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 604800  PRECEDING AND CURRENT ROW),
-        window_30day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 2592000 PRECEDING AND CURRENT ROW),
-        window_45day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 3888000 PRECEDING AND CURRENT ROW)
+        window_3day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 259200  PRECEDING AND CURRENT ROW),  -- 3 days
+        window_7day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 604800  PRECEDING AND CURRENT ROW),  -- 7 days
+        window_30day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 2592000 PRECEDING AND CURRENT ROW), -- 30 days
+        window_45day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 3888000 PRECEDING AND CURRENT ROW)  -- 45 days
 ),
 flagged_gb30 AS (
     SELECT cc_num, ts AS window_start, gift_sum_30day AS total_amt,
-           'gift_card_burst_30d' AS signal_type, __PRIO_GB30__ AS priority
+           'gift_card_burst_30d' AS signal_type, PRIO_GB30() AS priority
     FROM TRANSACTION_WITH_AGGREGATES
-    WHERE gift_count_30day >= __GB30__
+    WHERE gift_count_30day >= GB30()
 ),
 flagged_gb45 AS (
     SELECT cc_num, ts AS window_start, gift_sum_45day AS total_amt,
-           'gift_card_burst_45d' AS signal_type, __PRIO_GB45__ AS priority
+           'gift_card_burst_45d' AS signal_type, PRIO_GB45() AS priority
     FROM TRANSACTION_WITH_AGGREGATES
-    WHERE gift_count_45day >= __GB45__
+    WHERE gift_count_45day >= GB45()
 ),
 flagged_sv7 AS (
     SELECT cc_num, ts AS window_start, txn_sum_7day AS total_spend,
-           'spend_velocity_7d' AS signal_type, __PRIO_SV7__ AS priority
+           'spend_velocity_7d' AS signal_type, PRIO_SV7() AS priority
     FROM TRANSACTION_WITH_AGGREGATES
-    WHERE txn_count_7day >= __SV7__
+    WHERE txn_count_7day >= SV7()
 ),
 flagged_disp AS (
     SELECT cc_num, ts AS window_start, disp_sum_3day AS total_amt,
-           'repeated_displacement' AS signal_type, __PRIO_DISP__ AS priority
+           'repeated_displacement' AS signal_type, PRIO_DISP() AS priority
     FROM TRANSACTION_WITH_AGGREGATES
-    WHERE disp_count_3day >= __DISP__
+    WHERE disp_count_3day >= DISP()
 ),
 fraud_alerts AS (
     SELECT cc_num, window_start AS ts, total_amt   AS amt, signal_type, priority FROM flagged_gb30
