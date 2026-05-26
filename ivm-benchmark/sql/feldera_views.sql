@@ -123,10 +123,10 @@ SELECT cc_num, window_start AS ts, total_spend AS amt, 'spend_velocity_7d'     A
 UNION ALL
 SELECT cc_num, window_start AS ts, total_amt   AS amt, 'repeated_displacement' AS signal_type, PRIO_DISP() AS priority FROM flagged_repeated_displacement;
 
--- best_per_card: highest-priority signal per card — ensures one output row
--- per card regardless of how many signals fired simultaneously.
+-- best_per_card: sum of all signal priorities per card — cards that fire on
+-- multiple signals simultaneously score higher than single-signal cards.
 CREATE VIEW best_per_card AS
-SELECT cc_num, MAX(priority) AS max_priority, MIN(signal_type) AS signal_type
+SELECT cc_num, SUM(priority) AS total_priority
 FROM fraud_alerts
 GROUP BY cc_num;
 
@@ -151,7 +151,7 @@ INNER JOIN fraud_card_latest_ts lt ON t.cc_num = lt.cc_num AND t.ts = lt.latest_
 CREATE MATERIALIZED VIEW fraud_alert_details AS
 SELECT
     b.cc_num,
-    b.signal_type,
+    b.total_priority,
     MAX(a.amt)           AS alert_amt,
     MAX(a.ts)            AS alert_ts,
     MIN(t.ts)            AS ts,
@@ -162,6 +162,6 @@ SELECT
     MIN(t.distance)      AS distance,
     MIN(t.avg_7day)      AS avg_7day
 FROM best_per_card b
-INNER JOIN fraud_alerts a ON b.cc_num = a.cc_num AND a.priority = b.max_priority
+INNER JOIN fraud_alerts a ON b.cc_num = a.cc_num
 INNER JOIN fraud_card_latest_txn t ON b.cc_num = t.cc_num
-GROUP BY b.cc_num, b.signal_type;
+GROUP BY b.cc_num;

@@ -80,8 +80,7 @@ fraud_alerts AS (
 ),
 best_per_card AS (
     SELECT cc_num,
-           argMax(signal_type, priority) AS signal_type,
-           max(priority)                 AS max_priority
+           sum(priority) AS total_priority
     FROM fraud_alerts
     GROUP BY cc_num
 ),
@@ -99,17 +98,16 @@ fraud_card_latest_txn AS (
     GROUP BY cc_num
 )
 SELECT
-    b.cc_num                                                   AS cc_num,
-    b.latest_ts                                                AS ts,
-    b.max_amt                                                  AS amt,
+    b.cc_num                                                    AS cc_num,
+    b.latest_ts                                                 AS ts,
+    b.max_amt                                                   AS amt,
     b.category,
     b.shipping_lat,
     b.shipping_long,
-    round(b.distance, 3)                                       AS distance,
-    coalesce(b.avg_7day, 0.0)                                  AS avg_7day,
-    s.signal_type,
-    'high'                                                     AS confidence,
-    s.max_priority * 1000 + least(b.max_amt, toFloat64(9999))  AS review_priority
+    round(b.distance, 3)                                        AS distance,
+    coalesce(b.avg_7day, 0.0)                                   AS avg_7day,
+    'high'                                                      AS confidence,
+    s.total_priority * 1000 + least(b.max_amt, toFloat64(9999)) AS review_priority
 FROM fraud_card_latest_txn AS b
 JOIN best_per_card AS s USING (cc_num)
 ORDER BY review_priority DESC;
