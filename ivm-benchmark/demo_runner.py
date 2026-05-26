@@ -238,7 +238,7 @@ def _parse_std_rows(path) -> list[dict]:
 def _build_coordinator(args, active_sims, skip_clickhouse, skip_feldera, api_url, api_key, start_event):
     """Set up engines, load data, return (query_fns, push_threads) for the streaming loop."""
     from collections import defaultdict
-    from engine_ch      import ClickHouseFullEngine
+    from engine_clickhouse import ClickHouseFullEngine
     from engine_feldera import FelderaFraudEngine
 
     engines = []
@@ -380,7 +380,7 @@ def _run_sequential_benchmark(args, active_sims, skip_clickhouse, skip_feldera,
     Returns (perf_data, preload_times, split_meta).
     """
     from collections import defaultdict
-    from engine_ch      import ClickHouseFullEngine
+    from engine_clickhouse import ClickHouseFullEngine
     from engine_feldera import FelderaFraudEngine
 
     engines = []
