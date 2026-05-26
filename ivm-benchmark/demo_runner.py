@@ -39,7 +39,6 @@ from constants import (
     CH_HOST, CH_PORT, CH_DATABASE, CH_USERNAME, CH_PASSWORD,
     SIM_NAMES, DEMO_MODES,
     MOCK_QUERY_BASE, MOCK_QUERY_GROWTH,
-    THRESHOLD_PROFILES,
 )
 
 
@@ -716,15 +715,6 @@ def main():
     if N_STEPS < PLAN_STEPS:
         print(f"[max-steps] running {N_STEPS} of {PLAN_STEPS} planned batches "
               f"(cache layout from --steps {PLAN_STEPS})")
-
-    # Auto-select thresholds based on dataset scale
-    scale = Path(args.data_dir).name   # e.g. "0.1x", "1x", "10x"
-    if scale in THRESHOLD_PROFILES:
-        (constants.GIFT_BURST_30D_THRESHOLD,
-         constants.GIFT_BURST_45D_THRESHOLD,
-         constants.SPEND_VELOCITY_7D_THRESHOLD,
-         constants.DISPLACEMENT_THRESHOLD) = THRESHOLD_PROFILES[scale]
-        print(f"[thresholds] scale={scale}: {THRESHOLD_PROFILES[scale]}")
 
     active_sims = list(DEMO_MODES[args.mode])
     if args.no_ch:

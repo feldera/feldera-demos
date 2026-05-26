@@ -6,28 +6,12 @@ generate their dialect-specific CREATE FUNCTION SQL from these values via
 feldera_functions_sql() / ch_functions_sql() at setup time.
 """
 
-# ── Fraud signal thresholds (per dataset scale) ────────────────────────────────
-#
-# Thresholds scale with data volume: 10x data → 10x transactions per card
-# per epoch bucket, so thresholds must scale proportionally to maintain
-# comparable detection rates across dataset sizes.
-#
-#
-# Structure: {data_dir_suffix: (gb30, gb45, sv7, disp)}
-THRESHOLD_PROFILES = {
-    "0.1x": ( 20,  20,  20,  10),
-    "1x":   ( 20,  20,  20,  10),
-    "5x":   ( 20,  20,  20,  10),
-    "10x":  ( 20,  20,  20,  10),
-    "20x":  ( 20,  20,  20,  10),
-}
+# ── Fraud signal thresholds ────────────────────────────────────────────────────
 
-# Active thresholds — overridden by main() from THRESHOLD_PROFILES based on --data-dir.
-# Defaults match the "1x" profile so standalone imports are consistent.
-(GIFT_BURST_30D_THRESHOLD,
- GIFT_BURST_45D_THRESHOLD,
- SPEND_VELOCITY_7D_THRESHOLD,
- DISPLACEMENT_THRESHOLD) = THRESHOLD_PROFILES["1x"]
+GIFT_BURST_30D_THRESHOLD    = 20
+GIFT_BURST_45D_THRESHOLD    = 20
+SPEND_VELOCITY_7D_THRESHOLD = 20
+DISPLACEMENT_THRESHOLD      = 10
 
 # ── Fraud signal lists ─────────────────────────────────────────────────────────
 
