@@ -256,12 +256,12 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
     from engine_feldera import FelderaFraudEngine
 
     engines = []
+    if not skip_feldera:
+        engines.append(FelderaFraudEngine(api_url, api_key))
     if not skip_ch:
         engines.append(ClickHouseFullEngine(
             args.ch_host, args.ch_port, args.ch_database,
             args.ch_user, args.ch_password))
-    if not skip_feldera:
-        engines.append(FelderaFraudEngine(api_url, api_key))
     if not skip_ch and 1 in active_sims:
         engines.append(ClickHouseMVEngine(
             args.ch_host, args.ch_port, CH_DATABASE_LIGHT,
@@ -403,12 +403,12 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
     from engine_feldera import FelderaFraudEngine
 
     engines = []
+    if not skip_feldera:
+        engines.append(FelderaFraudEngine(api_url, api_key))
     if not skip_ch:
         engines.append(ClickHouseFullEngine(
             args.ch_host, args.ch_port, args.ch_database,
             args.ch_user, args.ch_password))
-    if not skip_feldera:
-        engines.append(FelderaFraudEngine(api_url, api_key))
     if not skip_ch and 1 in active_sims:
         engines.append(ClickHouseMVEngine(
             args.ch_host, args.ch_port, CH_DATABASE_LIGHT,
