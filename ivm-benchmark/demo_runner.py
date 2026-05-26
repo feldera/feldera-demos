@@ -36,7 +36,7 @@ from constants import (
     SPEND_VELOCITY_7D_THRESHOLD, DISPLACEMENT_THRESHOLD,  # noqa: F401
     ALL_SIGNALS,
     N_STEPS, STEP_INTERVAL, PRELOAD_ROWS, DATA_DIR,
-    CH_HOST, CH_PORT, CH_DATABASE, CH_USERNAME, CH_PASSWORD,
+    CLICKHOUSE_HOST, CLICKHOUSE_PORT, CLICKHOUSE_DATABASE, CLICKHOUSE_USERNAME, CLICKHOUSE_PASSWORD,
     SIM_NAMES, DEMO_MODES,
     MOCK_QUERY_BASE, MOCK_QUERY_GROWTH,
 )
@@ -235,7 +235,7 @@ def _parse_std_rows(path) -> list[dict]:
 
 # ── Engine coordinator (real mode) ────────────────────────────────────────────
 
-def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_key, start_event):
+def _build_coordinator(args, active_sims, skip_clickhouse, skip_feldera, api_url, api_key, start_event):
     """Set up engines, load data, return (query_fns, push_threads) for the streaming loop."""
     from collections import defaultdict
     from engine_ch      import ClickHouseFullEngine
@@ -244,10 +244,10 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
     engines = []
     if not skip_feldera:
         engines.append(FelderaFraudEngine(api_url, api_key))
-    if not skip_ch:
+    if not skip_clickhouse:
         engines.append(ClickHouseFullEngine(
-            args.ch_host, args.ch_port, args.ch_database,
-            args.ch_user, args.ch_password))
+            args.clickhouse_host, args.clickhouse_port, args.clickhouse_database,
+            args.clickhouse_user, args.clickhouse_password))
 
     # Split CSV and load each storage group in parallel (primary before secondary).
     preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_ROWS, args.batch_rows)
@@ -371,7 +371,7 @@ def _build_coordinator(args, active_sims, skip_ch, skip_feldera, api_url, api_ke
 
 # ── Sequential benchmark ───────────────────────────────────────────────────────
 
-def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
+def _run_sequential_benchmark(args, active_sims, skip_clickhouse, skip_feldera,
                                api_url, api_key) -> tuple:
     """Run each engine group end-to-end before starting the next.
 
@@ -386,10 +386,10 @@ def _run_sequential_benchmark(args, active_sims, skip_ch, skip_feldera,
     engines = []
     if not skip_feldera:
         engines.append(FelderaFraudEngine(api_url, api_key))
-    if not skip_ch:
+    if not skip_clickhouse:
         engines.append(ClickHouseFullEngine(
-            args.ch_host, args.ch_port, args.ch_database,
-            args.ch_user, args.ch_password))
+            args.clickhouse_host, args.clickhouse_port, args.clickhouse_database,
+            args.clickhouse_user, args.clickhouse_password))
 
     preload, batches = split_csv(args.data_dir, args.steps, PRELOAD_ROWS, args.batch_rows)
     batches      = batches[:N_STEPS]
@@ -636,15 +636,15 @@ def main():
                         choices=list(DEMO_MODES),
                         help="latency | accuracy | full  (default: full)")
     parser.add_argument("--no-feldera",   action="store_true")
-    parser.add_argument("--no-ch",        action="store_true",
-                        help="Disable ClickHouse engine (CH-full)")
+    parser.add_argument("--no-clickhouse", action="store_true",
+                        help="Disable ClickHouse engine")
     parser.add_argument("--data-dir",     default=DATA_DIR,
                         help="data/0.1x | data/1x | data/10x  (default: data/1x)")
-    parser.add_argument("--ch-host",      default=CH_HOST)
-    parser.add_argument("--ch-port",      type=int, default=CH_PORT)
-    parser.add_argument("--ch-database",  default=CH_DATABASE)
-    parser.add_argument("--ch-user",      default=CH_USERNAME)
-    parser.add_argument("--ch-password",  default=CH_PASSWORD)
+    parser.add_argument("--clickhouse-host",     default=CLICKHOUSE_HOST)
+    parser.add_argument("--clickhouse-port",     type=int, default=CLICKHOUSE_PORT)
+    parser.add_argument("--clickhouse-database", default=CLICKHOUSE_DATABASE)
+    parser.add_argument("--clickhouse-user",     default=CLICKHOUSE_USERNAME)
+    parser.add_argument("--clickhouse-password", default=CLICKHOUSE_PASSWORD)
     parser.add_argument("--api-url",      default=None)
     parser.add_argument("--api-key",      default=None)
     parser.add_argument("--steps",        type=int,   default=N_STEPS)
@@ -670,18 +670,18 @@ def main():
 
     # ── Connectivity pre-check ─────────────────────────────────────────────
     if not args.mock:
-        _need_ch      = 0 in list(DEMO_MODES[args.mode]) and not args.no_ch
+        _need_clickhouse      = 0 in list(DEMO_MODES[args.mode]) and not args.no_clickhouse
         _need_feldera = 1 in list(DEMO_MODES[args.mode]) and not args.no_feldera
         errors = []
-        if _need_ch:
+        if _need_clickhouse:
             try:
-                host = args.ch_host
-                port = args.ch_port
+                host = args.clickhouse_host
+                port = args.clickhouse_port
                 s = socket.create_connection((host, port), timeout=3)
                 s.close()
             except OSError:
                 errors.append(
-                    f"ClickHouse unreachable at {args.ch_host}:{args.ch_port}\n"
+                    f"ClickHouse unreachable at {args.clickhouse_host}:{args.clickhouse_port}\n"
                     f"  Start it with:  docker start clickhouse-server\n"
                     f"  Or:  docker run -d --name clickhouse-server "
                     f"-p 8123:8123 -p 9000:9000 clickhouse/clickhouse-server"
@@ -717,7 +717,7 @@ def main():
               f"(cache layout from --steps {PLAN_STEPS})")
 
     active_sims = list(DEMO_MODES[args.mode])
-    if args.no_ch:
+    if args.no_clickhouse:
         active_sims = [s for s in active_sims if s != 0]
     if args.no_feldera:
         active_sims = [s for s in active_sims if s != 1]
@@ -725,7 +725,7 @@ def main():
     api_url = args.api_url or DEFAULT_API_URL
     api_key = args.api_key or DEFAULT_API_KEY
 
-    skip_ch      = 0 not in active_sims
+    skip_clickhouse      = 0 not in active_sims
     skip_feldera = 1 not in active_sims
 
     start_event  = threading.Event()
@@ -739,13 +739,13 @@ def main():
             query_fns[sid] = _mock_query(sid)
     elif args.sequential:
         perf_data, preload_times, split_meta = _run_sequential_benchmark(
-            args, active_sims, skip_ch, skip_feldera, api_url, api_key)
+            args, active_sims, skip_clickhouse, skip_feldera, api_url, api_key)
         _print_summary(perf_data, active_sims, preload_times,
                        split_meta=split_meta, output_file=args.output)
         return
     else:
         query_fns, push_threads, preload_times, split_meta = _build_coordinator(
-            args, active_sims, skip_ch, skip_feldera, api_url, api_key, start_event)
+            args, active_sims, skip_clickhouse, skip_feldera, api_url, api_key, start_event)
 
     # ── Start workers ──────────────────────────────────────────────────────
     metrics_q   = queue.Queue()

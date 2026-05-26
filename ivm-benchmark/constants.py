@@ -3,7 +3,7 @@ constants.py — shared constants for the fraud detection benchmark demo.
 
 Thresholds and priorities are the single source of truth: both engines
 generate their dialect-specific CREATE FUNCTION SQL from these values via
-feldera_functions_sql() / ch_functions_sql() at setup time.
+feldera_functions_sql() / clickhouse_functions_sql() at setup time.
 """
 
 # ── Fraud signal thresholds ────────────────────────────────────────────────────
@@ -31,11 +31,11 @@ DATA_DIR      = "data/0.1x" # default scale; data/1x = standard demo, data/10x =
 
 # ── ClickHouse connection defaults ─────────────────────────────────────────────
 
-CH_HOST           = "localhost"
-CH_PORT           = 8123
-CH_DATABASE       = "fraud_detection"
-CH_USERNAME       = "demo"
-CH_PASSWORD       = ""
+CLICKHOUSE_HOST           = "localhost"
+CLICKHOUSE_PORT           = 8123
+CLICKHOUSE_DATABASE       = "fraud_detection"
+CLICKHOUSE_USERNAME       = "demo"
+CLICKHOUSE_PASSWORD       = ""
 
 # ── Feldera connection defaults ────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ SIGNAL_PRIORITY = {
 
 # ── Sim IDs: 0=CH-full, 1=Feldera ─────────────────────────────────────────────
 
-SIM_NAMES  = ["CH-full", "Feldera"]
+SIM_NAMES  = ["ClickHouse", "Feldera"]
 
 DEMO_MODES = {
     "latency": [0, 1],   # speed story: CH-full (O(N)) vs Feldera (O(delta))
@@ -84,7 +84,7 @@ def feldera_functions_sql(gb30: int, gb45: int, sv7: int, disp: int,
     )
 
 
-def ch_functions_sql(gb30: int, gb45: int, sv7: int, disp: int,
+def clickhouse_functions_sql(gb30: int, gb45: int, sv7: int, disp: int,
                      prio: dict) -> str:
     """Generate ClickHouse CREATE FUNCTION statements for thresholds and priorities."""
     return (

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import constants as _c
-from constants import ch_functions_sql
+from constants import clickhouse_functions_sql
 from engine_base import FraudEngine
 
 _SQL_DIR      = Path(__file__).parent / "sql"
@@ -101,7 +101,7 @@ def _stream_insert(conn: dict, table: str, columns: list[str], csv_path: Path,
     return total
 
 
-def _to_ch_rows(rows: list[dict]) -> list[list]:
+def _to_clickhouse_rows(rows: list[dict]) -> list[list]:
     """Convert standardized push_step() dicts to list[list] for CH INSERT."""
     _fi = datetime.fromisoformat
     _utc = timezone.utc
@@ -203,7 +203,7 @@ class ClickHouseFullEngine(_ClickHouseBase):
     def setup(self, preload_path: "Path | None", data_dir: Path) -> None:
         client = self._get_client()
         _exec_sql(client, _FULL_TABLES_SQL)
-        _exec_sql(client, ch_functions_sql(
+        _exec_sql(client, clickhouse_functions_sql(
             gb30=_c.GIFT_BURST_30D_THRESHOLD,
             gb45=_c.GIFT_BURST_45D_THRESHOLD,
             sv7=_c.SPEND_VELOCITY_7D_THRESHOLD,
@@ -248,7 +248,7 @@ class ClickHouseFullEngine(_ClickHouseBase):
 
     def push_step(self, rows: list[dict]) -> None:
         t0 = time.perf_counter()
-        self._get_client().insert("transactions", _to_ch_rows(rows),
+        self._get_client().insert("transactions", _to_clickhouse_rows(rows),
             column_names=["cc_num", "ts", "amt", "category", "shipping_lat", "shipping_long"])
         self._insert_t = time.perf_counter() - t0
 

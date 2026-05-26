@@ -5,7 +5,7 @@ run_experiments.py — Sweep runner for the Feldera vs ClickHouse benchmark.
 Runs demo_runner.py headlessly across combinations of:
   --preload-rows  (rows of history loaded before streaming)
   --steps         (number of streaming batches)
-  --engines       feldera | ch-full | latency | all
+  --engines       feldera | clickhouse | latency | all
 
 Results are saved to experiments/<tag>.txt.
 
@@ -42,10 +42,10 @@ def _set_mem_limit():
 
 # Preset name → (demo_runner.py flags, short label).
 ENGINE_PRESETS = {
-    "ch-full":  (["--mode", "latency", "--no-feldera"], "ch-full"),
-    "feldera":  (["--no-ch"],                           "feldera"),
-    "latency":  (["--mode", "latency"],                 "ch-full+feldera"),
-    "all":      (["--mode", "full"],                    "all"),
+    "clickhouse": (["--mode", "latency", "--no-feldera"], "clickhouse"),
+    "feldera":    (["--no-clickhouse"],                   "feldera"),
+    "latency":    (["--mode", "latency"],                 "clickhouse+feldera"),
+    "all":        (["--mode", "full"],                    "all"),
 }
 
 
@@ -95,8 +95,8 @@ def main():
                         choices=list(ENGINE_PRESETS.keys()),
                         metavar="PRESET",
                         help="Engine preset(s) to run; each value = one experiment in the sweep. "
-                             "Choices: ch-full, feldera (single engine); "
-                             "latency / all (CH-full+Feldera). (default: all)")
+                             "Choices: clickhouse, feldera (single engine); "
+                             "latency / all (ClickHouse+Feldera). (default: all)")
     parser.add_argument("--data-dir",  default="data/0.1x",
                         help="Dataset scale (default: data/0.1x)")
     parser.add_argument("--mock",          action="store_true",
