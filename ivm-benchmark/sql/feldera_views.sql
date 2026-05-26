@@ -1,5 +1,6 @@
 -- Feldera fraud detection pipeline — view definitions.
--- Thresholds and priorities are defined as scalar functions below; no Python substitution needed.
+-- Threshold/priority CREATE FUNCTION preamble is generated from constants.py at setup time
+-- (see engine_feldera.py: feldera_functions_sql()) — no hardcoded values here.
 -- Built on the architecture of agentic-fraud-detection/programs/fraud_detection_demo.sql:
 -- all rolling aggregates are computed once in TRANSACTION_WITH_AGGREGATES using named
 -- WINDOW clauses; signal detection views are simple WHERE filters on that view.
@@ -19,18 +20,6 @@
 -- │  fraud_card_latest_txn       (view)      │  CTE: fraud_card_latest_txn      │
 -- │  fraud_alert_details   (mat. view)       │  final SELECT                    │
 -- └─────────────────────────────────────────────────────────────────────────────┘
-
--- ── Threshold and priority constants ─────────────────────────────────────────
-
-CREATE FUNCTION GB30()      RETURNS INTEGER NOT NULL AS 20;
-CREATE FUNCTION GB45()      RETURNS INTEGER NOT NULL AS 20;
-CREATE FUNCTION SV7()       RETURNS INTEGER NOT NULL AS 20;
-CREATE FUNCTION DISP()      RETURNS INTEGER NOT NULL AS 10;
-
-CREATE FUNCTION PRIO_GB30() RETURNS INTEGER NOT NULL AS 3;
-CREATE FUNCTION PRIO_GB45() RETURNS INTEGER NOT NULL AS 4;
-CREATE FUNCTION PRIO_SV7()  RETURNS INTEGER NOT NULL AS 1;
-CREATE FUNCTION PRIO_DISP() RETURNS INTEGER NOT NULL AS 5;
 
 -- ── Base enrichment ───────────────────────────────────────────────────────────
 

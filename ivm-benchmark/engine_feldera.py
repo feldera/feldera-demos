@@ -25,7 +25,7 @@ from pathlib import Path
 from feldera import FelderaClient, PipelineBuilder
 from feldera.runtime_config import RuntimeConfig
 
-from constants import FELDERA_PIPELINE_NAME as _PIPELINE, SIGNAL_PRIORITY
+from constants import FELDERA_PIPELINE_NAME as _PIPELINE, SIGNAL_PRIORITY, feldera_functions_sql
 from engine_base import FraudEngine
 
 logging.getLogger("feldera").setLevel(logging.ERROR)
@@ -149,8 +149,12 @@ class _FelderaEngine:
 def setup_and_start(api_url: str, api_key,
                     gb30: int, gb45: int, sv7: int, disp: int,
                     prio: dict) -> _FelderaEngine:
-    """Deploy the fraud-detection SQL; thresholds/priorities are defined as SQL functions."""
-    sql = _TABLES_FILE.read_text() + "\n" + _VIEWS_FILE.read_text()
+    """Deploy the fraud-detection SQL; threshold/priority functions generated from constants."""
+    sql = (
+        _TABLES_FILE.read_text()
+        + "\n" + feldera_functions_sql(gb30, gb45, sv7, disp, prio)
+        + "\n" + _VIEWS_FILE.read_text()
+    )
     print(f"[feldera] thresholds: gb30={gb30} gb45={gb45} sv7={sv7} disp={disp}")
     engine = _FelderaEngine(api_url, api_key)
     engine.setup(sql)

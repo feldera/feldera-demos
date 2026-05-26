@@ -1,19 +1,7 @@
--- CH-full schema: base tables and threshold/priority constants.
+-- CH-full schema: base tables only.
+-- Threshold/priority CREATE FUNCTION preamble is generated from constants.py at setup time
+-- (see engine_ch.py: ch_functions_sql()) — no hardcoded values here.
 -- Executed by ClickHouseFullEngine.setup() (idempotent — all CREATE ... IF NOT EXISTS).
---
--- Threshold and priority constants (mirrors feldera_views.sql scalar functions).
--- ClickHouse lambda UDFs work in WHERE/SELECT but NOT in WINDOW RANGE bounds
--- (which require literal integers) — window-second values stay as annotated literals.
-
-CREATE FUNCTION IF NOT EXISTS GB30      AS () -> toUInt32(20);
-CREATE FUNCTION IF NOT EXISTS GB45      AS () -> toUInt32(20);
-CREATE FUNCTION IF NOT EXISTS SV7       AS () -> toUInt32(20);
-CREATE FUNCTION IF NOT EXISTS DISP      AS () -> toUInt32(10);
-
-CREATE FUNCTION IF NOT EXISTS PRIO_GB30 AS () -> toUInt32(3);
-CREATE FUNCTION IF NOT EXISTS PRIO_GB45 AS () -> toUInt32(4);
-CREATE FUNCTION IF NOT EXISTS PRIO_SV7  AS () -> toUInt32(1);
-CREATE FUNCTION IF NOT EXISTS PRIO_DISP AS () -> toUInt32(5);
 
 CREATE TABLE IF NOT EXISTS customers (
     cc_num  UInt64,

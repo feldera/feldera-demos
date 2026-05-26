@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+import constants as _c
+from constants import ch_functions_sql
 from engine_base import FraudEngine
 
 _SQL_DIR      = Path(__file__).parent / "sql"
@@ -201,6 +203,13 @@ class ClickHouseFullEngine(_ClickHouseBase):
     def setup(self, preload_path: "Path | None", data_dir: Path) -> None:
         client = self._get_client()
         _exec_sql(client, _FULL_TABLES_SQL)
+        _exec_sql(client, ch_functions_sql(
+            gb30=_c.GIFT_BURST_30D_THRESHOLD,
+            gb45=_c.GIFT_BURST_45D_THRESHOLD,
+            sv7=_c.SPEND_VELOCITY_7D_THRESHOLD,
+            disp=_c.DISPLACEMENT_THRESHOLD,
+            prio=_c.SIGNAL_PRIORITY,
+        ))
         client.command("TRUNCATE TABLE IF EXISTS transactions")
         client.command("TRUNCATE TABLE IF EXISTS customers")
         print("[CH] Tables ready.")
