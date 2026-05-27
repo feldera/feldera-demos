@@ -141,10 +141,21 @@ GROUP BY t.cc_num;
 
 -- fraud_card_latest_txn: full enriched row (distance + avg_7day) for the most
 -- recent transaction of each fraud-flagged card — the analyst context snapshot.
+-- GROUP BY cc_num collapses timestamp ties (multiple transactions sharing the same
+-- MAX ts) to exactly one row per card, preventing fan-out in fraud_alert_details.
 CREATE VIEW fraud_card_latest_txn AS
-SELECT t.cc_num, t.ts, t.amt, t.category, t.shipping_lat, t.shipping_long, t.distance, t.avg_7day
+SELECT
+    t.cc_num,
+    MAX(t.ts)            AS ts,
+    MIN(t.amt)           AS amt,
+    MIN(t.category)      AS category,
+    MIN(t.shipping_lat)  AS shipping_lat,
+    MIN(t.shipping_long) AS shipping_long,
+    MIN(t.distance)      AS distance,
+    MIN(t.avg_7day)      AS avg_7day
 FROM TRANSACTION_WITH_AGGREGATES t
-INNER JOIN fraud_card_latest_ts lt ON t.cc_num = lt.cc_num AND t.ts = lt.latest_ts;
+INNER JOIN fraud_card_latest_ts lt ON t.cc_num = lt.cc_num AND t.ts = lt.latest_ts
+GROUP BY t.cc_num;
 
 -- fraud_alert_summary: highest-value alert amount and most recent alert timestamp per card.
 CREATE VIEW fraud_alert_summary AS
