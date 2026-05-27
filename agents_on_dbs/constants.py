@@ -91,7 +91,7 @@ def feldera_functions_sql(gb30: int, gb45: int, sv7: int, disp: int,
         f"CREATE FUNCTION GB45()      RETURNS INTEGER NOT NULL AS {gb45};\n"
         f"CREATE FUNCTION SV7()       RETURNS INTEGER NOT NULL AS {sv7};\n"
         f"CREATE FUNCTION DISP()      RETURNS INTEGER NOT NULL AS {disp};\n"
-        f"CREATE FUNCTION DIST()      RETURNS DOUBLE  NOT NULL AS {dist_miles};\n"
+        f"CREATE FUNCTION DIST()      RETURNS DOUBLE  NOT NULL AS CAST({dist_miles} AS DOUBLE);\n"
         f"\n"
         f"CREATE FUNCTION PRIO_GB30() RETURNS INTEGER NOT NULL AS {prio['gift_card_burst_30d']};\n"
         f"CREATE FUNCTION PRIO_GB45() RETURNS INTEGER NOT NULL AS {prio['gift_card_burst_45d']};\n"
