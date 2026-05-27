@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+import clickhouse_connect
+
 import constants as _c
 from constants import clickhouse_functions_sql
 from engine_base import FraudEngine
@@ -53,11 +55,6 @@ def _exec_sql(client, sql: str) -> None:
 
 
 def _connect(host: str, port: int, database: str, user: str, password: str):
-    try:
-        import clickhouse_connect
-    except ImportError:
-        raise ImportError("Run: pip install clickhouse-connect")
-
     tmp = clickhouse_connect.get_client(
         host=host, port=port, username=user, password=password, database="default")
     tmp.command(f"CREATE DATABASE IF NOT EXISTS {database}")
@@ -68,7 +65,6 @@ def _connect(host: str, port: int, database: str, user: str, password: str):
 def _insert(conn: dict, table: str, columns: list[str], rows: list[list]) -> None:
     """Parallel chunked INSERT. Each worker gets its own client so concurrent
     INSERTs don't share a clickhouse-connect session (which would conflict)."""
-    import clickhouse_connect
     chunks = [rows[i: i + _CHUNK_SIZE] for i in range(0, len(rows), _CHUNK_SIZE)]
     def _worker(chunk):
         c = clickhouse_connect.get_client(**conn)
@@ -86,7 +82,6 @@ def _stream_insert(conn: dict, table: str, columns: list[str], csv_path: Path,
     Reads _CHUNK_SIZE rows at a time and submits each chunk to a thread pool,
     keeping at most _PUSH_WORKERS inserts in flight simultaneously.
     """
-    import clickhouse_connect
     total = 0
 
     def _flush(c):
