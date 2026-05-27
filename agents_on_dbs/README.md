@@ -240,29 +240,3 @@ python3 run_experiments.py --preload-rows 3000000 --steps 500 --batch-rows 2000 
 
 Engine presets: `clickhouse`, `feldera`, `latency` (both), `all` (both).
 
----
-
-## Output
-
-After the run, a per-step summary table prints to the terminal:
-
-```
-  PRELOAD  ClickHouse: 205ms   Feldera: 14.8s (push=174ms, ivm=1.0s)
-  STEP LATENCY SUMMARY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  step  engine        ins  ref+qry      qry    total     n
-──────────────────────────────────────────────────────────
-     1  ClickHouse  158ms    46ms         —    204ms    45
-        Feldera     281ms  1010ms        2ms  1293ms    45
-──────────────────────────────────────────────────────────
-   avg                ins  ref+qry      qry    total
-──────────────────────────────────────────────────────────
-        ClickHouse  158ms   120ms         —    279ms
-        Feldera     283ms  1010ms        2ms  1296ms
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-- `ins`: time to push the batch into the engine
-- `ref+qry`: for ClickHouse — full O(N) recompute at query time; for Feldera — `ref` = IVM commit, `qry` = O(1) count read
-- `n`: new fraud alerts detected this step (identical for both engines)
-- `total`: end-to-end latency — the primary comparison metric
