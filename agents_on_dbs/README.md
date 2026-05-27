@@ -181,6 +181,7 @@ python3 demo_runner.py --mock --steps 10 --output results.txt
 
 | Scale | Transactions | Use |
 |-------|-------------|-----|
+| `data/0.01x` | ~60K rows | Fastest smoke test (included in repo) |
 | `data/0.1x` | ~600K rows | Quick smoke test |
 | `data/1x` | ~6M rows | Standard demo |
 | `data/10x` | ~60M rows | Large history |
@@ -189,8 +190,8 @@ python3 demo_runner.py --mock --steps 10 --output results.txt
 ### Run
 
 ```bash
-# Smoke test (0.1x data, both engines)
-python3 demo_runner.py --data-dir data/0.1x --interval 0
+# Smoke test (0.01x data, included in repo — no download needed)
+python3 demo_runner.py --data-dir data/0.01x --interval 0
 
 # Standard benchmark with preloaded history
 python3 demo_runner.py --data-dir data/1x --preload-rows 3000000 --steps 500 --batch-rows 2000 --interval 0 --output results.txt
@@ -208,7 +209,7 @@ python3 plot_results.py results.txt
 | `--mock` | off | Simulate queries; no DB needed |
 | `--output` | none | Save summary to file |
 | `--mode` | `full` | `full` \| `latency` (both run same engines) |
-| `--data-dir` | `data/0.1x` | Dataset scale directory |
+| `--data-dir` | `data/0.01x` | Dataset scale directory |
 | `--steps` | `50` | Number of streaming batches (cache layout) |
 | `--max-steps` | none | Stop early after N steps |
 | `--batch-rows` | none | Fix each batch to exactly N rows |

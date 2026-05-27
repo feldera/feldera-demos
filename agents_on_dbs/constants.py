@@ -28,7 +28,7 @@ ALL_SIGNALS = [
 N_STEPS       = 50
 STEP_INTERVAL = 10.0      # seconds between batches
 PRELOAD_ROWS  = 0         # rows of history loaded before the benchmark loop
-DATA_DIR      = "data/0.1x" # default scale; data/1x = standard demo, data/10x = max gap
+DATA_DIR      = "data/0.01x" # default scale (in repo); data/0.1x, data/1x, data/10x = larger
 
 # ── ClickHouse connection defaults ─────────────────────────────────────────────
 
