@@ -23,7 +23,12 @@ _CHUNK_SIZE   = 250_000   # rows per INSERT — keeps memory bounded during larg
 _PUSH_WORKERS = 10           # parallel INSERT threads during preload
 
 _FULL_TABLES_SQL = (_SQL_DIR / "clickhouse_tables.sql").read_text()
-_FULL_VIEWS_SQL  = (_SQL_DIR / "clickhouse_views.sql").read_text()
+_FULL_VIEWS_SQL  = (_SQL_DIR / "clickhouse_views.sql").read_text().format(
+    window_3d_secs  = _c.WINDOW_3D_SECS,
+    window_7d_secs  = _c.WINDOW_7D_SECS,
+    window_30d_secs = _c.WINDOW_30D_SECS,
+    window_45d_secs = _c.WINDOW_45D_SECS,
+)
 _FULL_QUERY      = (_SQL_DIR / "clickhouse_query.sql").read_text().strip()
 
 
@@ -208,6 +213,9 @@ class ClickHouseFullEngine(_ClickHouseBase):
             gb45=_c.GIFT_BURST_45D_THRESHOLD,
             sv7=_c.SPEND_VELOCITY_7D_THRESHOLD,
             disp=_c.DISPLACEMENT_THRESHOLD,
+            dist_miles=_c.DIST_MILES_THRESHOLD,
+            review_scale=_c.REVIEW_PRIORITY_SCALE,
+            review_cap=_c.REVIEW_AMT_CAP,
             prio=_c.SIGNAL_PRIORITY,
         ))
         client.command("TRUNCATE TABLE IF EXISTS transactions")

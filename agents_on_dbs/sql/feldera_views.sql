@@ -64,8 +64,8 @@ SELECT
     SUM(CASE WHEN category = 'gift card' THEN amt ELSE 0 END)  OVER window_45day AS gift_sum_45day,
     COUNT(*)                                                    OVER window_7day  AS txn_count_7day,
     SUM(amt)                                                    OVER window_7day  AS txn_sum_7day,
-    SUM(CASE WHEN distance > 20.0 THEN 1   ELSE 0 END)         OVER window_3day  AS disp_count_3day,
-    SUM(CASE WHEN distance > 20.0 THEN amt ELSE 0 END)         OVER window_3day  AS disp_sum_3day
+    SUM(CASE WHEN distance > DIST() THEN 1   ELSE 0 END)         OVER window_3day  AS disp_count_3day,
+    SUM(CASE WHEN distance > DIST() THEN amt ELSE 0 END)         OVER window_3day  AS disp_sum_3day
 FROM TRANSACTION_WITH_DISTANCE
 WINDOW
     window_3day  AS (PARTITION BY cc_num ORDER BY ts RANGE BETWEEN INTERVAL 3  DAYS PRECEDING AND CURRENT ROW),
@@ -101,7 +101,7 @@ FROM TRANSACTION_WITH_AGGREGATES
 WHERE txn_count_7day >= SV7();
 
 -- flagged_repeated_displacement: card has >= DISP() far-from-home transactions
--- (distance > 20°) in the trailing 3-day window.  Detects the card being used
+-- (distance > DIST()) in the trailing 3-day window.  Detects the card being used
 -- far from the cardholder's home on multiple consecutive days — indicative of
 -- physical theft or cloning.
 CREATE VIEW flagged_repeated_displacement AS

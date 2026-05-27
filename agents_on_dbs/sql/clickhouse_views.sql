@@ -39,14 +39,14 @@ TRANSACTION_WITH_AGGREGATES AS (
         sum(if(category = 'gift card', amt, 0))          OVER window_45day AS gift_sum_45day,
         count()                                          OVER window_7day  AS txn_count_7day,
         sum(amt)                                         OVER window_7day  AS txn_sum_7day,
-        sum(if(distance > 20.0, 1,   0))                 OVER window_3day  AS disp_count_3day,
-        sum(if(distance > 20.0, amt, 0))                 OVER window_3day  AS disp_sum_3day
+        sum(if(distance > DIST(), 1,   0))                 OVER window_3day  AS disp_count_3day,
+        sum(if(distance > DIST(), amt, 0))                 OVER window_3day  AS disp_sum_3day
     FROM TRANSACTION_WITH_DISTANCE
     WINDOW
-        window_3day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 259200  PRECEDING AND CURRENT ROW),  -- 3 days
-        window_7day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 604800  PRECEDING AND CURRENT ROW),  -- 7 days
-        window_30day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 2592000 PRECEDING AND CURRENT ROW), -- 30 days
-        window_45day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN 3888000 PRECEDING AND CURRENT ROW)  -- 45 days
+        window_3day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN {window_3d_secs}  PRECEDING AND CURRENT ROW),  -- 3 days
+        window_7day  AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN {window_7d_secs}  PRECEDING AND CURRENT ROW),  -- 7 days
+        window_30day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN {window_30d_secs} PRECEDING AND CURRENT ROW), -- 30 days
+        window_45day AS (PARTITION BY cc_num ORDER BY toUnixTimestamp(ts) RANGE BETWEEN {window_45d_secs} PRECEDING AND CURRENT ROW)  -- 45 days
 ),
 flagged_gb30 AS (
     SELECT cc_num, ts AS window_start, gift_sum_30day AS total_amt,
@@ -108,7 +108,7 @@ SELECT
     round(b.distance, 3)                                        AS distance,
     coalesce(b.avg_7day, 0.0)                                   AS avg_7day,
     'high'                                                      AS confidence,
-    s.total_priority * 1000 + least(b.max_amt, toFloat64(9999)) AS review_priority
+    s.total_priority * REVIEW_SCALE() + least(b.max_amt, REVIEW_CAP()) AS review_priority
 FROM fraud_card_latest_txn AS b
 JOIN card_suspicion_score AS s USING (cc_num)
 ORDER BY review_priority DESC;

@@ -147,15 +147,15 @@ class _FelderaEngine:
 # ── Pipeline setup helpers ─────────────────────────────────────────────────────
 
 def setup_and_start(api_url: str, api_key,
-                    gb30: int, gb45: int, sv7: int, disp: int,
+                    gb30: int, gb45: int, sv7: int, disp: int, dist_miles: float,
                     prio: dict) -> _FelderaEngine:
     """Deploy the fraud-detection SQL; threshold/priority functions generated from constants."""
     sql = (
         _TABLES_FILE.read_text()
-        + "\n" + feldera_functions_sql(gb30, gb45, sv7, disp, prio)
+        + "\n" + feldera_functions_sql(gb30, gb45, sv7, disp, dist_miles, prio)
         + "\n" + _VIEWS_FILE.read_text()
     )
-    print(f"[feldera] thresholds: gb30={gb30} gb45={gb45} sv7={sv7} disp={disp}")
+    print(f"[feldera] thresholds: gb30={gb30} gb45={gb45} sv7={sv7} disp={disp} dist={dist_miles}")
     engine = _FelderaEngine(api_url, api_key)
     engine.setup(sql)
     print(f"[feldera] Pipeline '{_PIPELINE}' running.")
@@ -234,6 +234,7 @@ class FelderaFraudEngine(FraudEngine):
             gb45=_c.GIFT_BURST_45D_THRESHOLD,
             sv7=_c.SPEND_VELOCITY_7D_THRESHOLD,
             disp=_c.DISPLACEMENT_THRESHOLD,
+            dist_miles=_c.DIST_MILES_THRESHOLD,
             prio=_c.SIGNAL_PRIORITY,
         )
         customers = _read_customers(data_dir)
