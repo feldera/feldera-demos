@@ -146,22 +146,28 @@ SELECT t.cc_num, t.ts, t.amt, t.category, t.shipping_lat, t.shipping_long, t.dis
 FROM TRANSACTION_WITH_AGGREGATES t
 INNER JOIN fraud_card_latest_ts lt ON t.cc_num = lt.cc_num AND t.ts = lt.latest_ts;
 
+-- fraud_alert_summary: highest-value alert amount and most recent alert timestamp per card.
+CREATE VIEW fraud_alert_summary AS
+SELECT cc_num, MAX(amt) AS alert_amt, MAX(ts) AS alert_ts
+FROM fraud_alerts
+GROUP BY cc_num;
+
 -- fraud_alert_details: final materialized output — one row per flagged card.
+-- All three source views have exactly one row per cc_num, so no GROUP BY needed.
 -- Materialized so the demo query is O(flagged cards), not O(all transactions).
 CREATE MATERIALIZED VIEW fraud_alert_details AS
 SELECT
     b.cc_num,
     b.total_priority,
-    MAX(a.amt)           AS alert_amt,
-    MAX(a.ts)            AS alert_ts,
-    MIN(t.ts)            AS ts,
-    MIN(t.amt)           AS amt,
-    MIN(t.category)      AS category,
-    MIN(t.shipping_lat)  AS shipping_lat,
-    MIN(t.shipping_long) AS shipping_long,
-    MIN(t.distance)      AS distance,
-    MIN(t.avg_7day)      AS avg_7day
+    a.alert_amt,
+    a.alert_ts,
+    t.ts,
+    t.amt,
+    t.category,
+    t.shipping_lat,
+    t.shipping_long,
+    t.distance,
+    t.avg_7day
 FROM card_suspicion_score b
-INNER JOIN fraud_alerts a ON b.cc_num = a.cc_num
-INNER JOIN fraud_card_latest_txn t ON b.cc_num = t.cc_num
-GROUP BY b.cc_num, b.total_priority;
+INNER JOIN fraud_alert_summary a  ON b.cc_num = a.cc_num
+INNER JOIN fraud_card_latest_txn t ON b.cc_num = t.cc_num;
