@@ -85,6 +85,12 @@ card_suspicion_score AS (
     FROM fraud_alerts
     GROUP BY cc_num
 ),
+-- highest-value alert amount and most recent alert timestamp per card
+fraud_alert_summary AS (
+    SELECT cc_num, max(amt) AS alert_amt, max(ts) AS alert_ts
+    FROM fraud_alerts
+    GROUP BY cc_num
+),
 fraud_card_latest_txn AS (
     SELECT
         cc_num,
@@ -99,16 +105,19 @@ fraud_card_latest_txn AS (
     GROUP BY cc_num
 )
 SELECT
-    b.cc_num                                                    AS cc_num,
-    b.latest_ts                                                 AS ts,
-    b.max_amt                                                   AS amt,
+    b.cc_num                                                          AS cc_num,
+    s.total_priority,
+    a.alert_amt,
+    a.alert_ts,
+    b.latest_ts                                                       AS ts,
+    b.max_amt                                                         AS amt,
     b.category,
     b.shipping_lat,
     b.shipping_long,
-    round(b.distance, 3)                                        AS distance,
-    coalesce(b.avg_7day, 0.0)                                   AS avg_7day,
-    'high'                                                      AS confidence,
+    round(b.distance, 3)                                              AS distance,
+    coalesce(b.avg_7day, 0.0)                                         AS avg_7day,
     s.total_priority * REVIEW_SCALE() + least(b.max_amt, REVIEW_CAP()) AS review_priority
 FROM fraud_card_latest_txn AS b
-JOIN card_suspicion_score AS s USING (cc_num)
+JOIN card_suspicion_score  AS s USING (cc_num)
+JOIN fraud_alert_summary   AS a USING (cc_num)
 ORDER BY review_priority DESC;
