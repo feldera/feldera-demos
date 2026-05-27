@@ -30,7 +30,9 @@ hopsworks/fraud_streaming_model
 # agents_on_dbs benchmark: experiment outputs, plots, data, local venv, and local test scripts
 agents_on_dbs/experiments/
 agents_on_dbs/results*.txt
-agents_on_dbs/data/
+agents_on_dbs/data/*/
+!agents_on_dbs/data/0.01x/
+agents_on_dbs/data/0.01x/.cache/
 agents_on_dbs/.venv/
 agents_on_dbs/test_*.py
 agents_on_dbs/tests/
