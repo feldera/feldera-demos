@@ -142,9 +142,15 @@ Threshold and priority functions (`GB30()`, `PRIO_GB30()`, etc.) are generated f
 
 ## Prerequisites
 
+### Python packages
+
 ```bash
 pip install "feldera>=0.298" clickhouse-connect matplotlib python-dotenv requests
 ```
+
+`clickhouse-connect` must be installed even if running Feldera-only — it is imported at module load time by `engine_clickhouse.py`.
+
+### Services
 
 Start both services:
 
