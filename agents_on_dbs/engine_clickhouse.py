@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """
-engine_ch.py — ClickHouse FraudEngine implementation.
+engine_clickhouse.py — ClickHouse FraudEngine implementation.
 
-ClickHouseFullEngine  (sim 0, "CH-full")
+ClickHouseFullEngine  (sim 0, "ClickHouse")
   Primary for the "clickhouse" storage group.  Owns schema setup, customer
   load, and all INSERTs.  Runs a full O(N) columnar scan on every query —
   latency grows with history size.
+
+Timing model inside push_step() / query():
+
+  push_step()  — times client.insert() only → reported as ins
+  query()      — times client.query() only  → reported as ref+qry
+
+  ClickHouse does no incremental work at insert time; the entire window
+  computation (O(N) scan over all history) happens inside query().
+  That is why IVM always shows 0ms in the summary table.
 """
 
 import csv
