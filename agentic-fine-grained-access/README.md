@@ -1,4 +1,4 @@
-# Fine-Grained Authorization Demo
+# Real-time Intrusion Detection Demo
 
 Ready-to-run demo. No arguments needed — all config is pre-filled in `fga_init.md`.
 
