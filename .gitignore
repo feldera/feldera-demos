@@ -27,13 +27,13 @@ hopsworks/hopsworks-secrets/*
 !hopsworks/hopsworks-secrets/.gitkeep
 hopsworks/fraud_streaming_model
 
-# agents-on-dbs benchmark: experiment outputs, plots, data, local venv, and local test scripts
-agents-on-dbs/experiments/
-agents-on-dbs/results*.txt
-agents-on-dbs/data/*/
-!agents-on-dbs/data/0.01x/
-agents-on-dbs/data/0.01x/.cache/
-agents-on-dbs/.venv/
-agents-on-dbs/test_*.py
-agents-on-dbs/tests/
-agents-on-dbs/eval/
+# rolling-aggregate-bench: experiment outputs, plots, data, local venv, and local test scripts
+rolling-aggregate-bench/experiments/
+rolling-aggregate-bench/results*.txt
+rolling-aggregate-bench/data/*/
+!rolling-aggregate-bench/data/0.01x/
+rolling-aggregate-bench/data/0.01x/.cache/
+rolling-aggregate-bench/.venv/
+rolling-aggregate-bench/test_*.py
+rolling-aggregate-bench/tests/
+rolling-aggregate-bench/eval/

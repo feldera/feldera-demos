@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).parent           # src/
-_ROOT = _HERE.parent                    # agents-on-dbs/
+_ROOT = _HERE.parent                    # rolling-aggregate-bench/
 
 sys.path.insert(0, str(_HERE))          # constants, demo_runner, engines
 

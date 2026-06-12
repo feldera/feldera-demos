@@ -1,9 +1,9 @@
-Run the IVM benchmark from the `agents_on_dbs/` directory.
+Run the IVM benchmark from the `rolling-aggregate-bench/` directory.
 
 Ask the user which scale and mode to use, then run:
 
 ```bash
-cd /home/nina/projects/feldera-demos/agents-on-dbs
+cd /home/nina/projects/feldera-demos/rolling-aggregate-bench
 python3 src/run_bench.py \
   --customers <CUSTOMERS> --preload <PRELOAD> --batch-size 1000 --batches <BATCHES> \
   --sequential --mode <MODE>
