@@ -8,10 +8,10 @@ feldera_functions_sql() / clickhouse_functions_sql() / postgres_functions_sql() 
 
 # ── Fraud signal thresholds ────────────────────────────────────────────────────
 
-GIFT_BURST_30D_THRESHOLD    = 20
-GIFT_BURST_45D_THRESHOLD    = 20
-SPEND_VELOCITY_7D_THRESHOLD = 20
-DISPLACEMENT_THRESHOLD      = 10
+GIFT_BURST_30D_THRESHOLD    = 2
+GIFT_BURST_45D_THRESHOLD    = 2
+SPEND_VELOCITY_7D_THRESHOLD = 2
+DISPLACEMENT_THRESHOLD      = 2
 DIST_MILES_THRESHOLD        = 20.0   # Manhattan-distance threshold for "far from home"
 
 # ── Fraud signal lists ─────────────────────────────────────────────────────────
