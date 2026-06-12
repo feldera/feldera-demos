@@ -12,6 +12,7 @@ Available demos — run via slash command or natural language:
 | Fraud Detection (Delta Lake) | `/run_fraud_delta_lake` | `run fraud delta lake demo` |
 | Hopsworks + Feldera | `/run_hopsworks` | `run hopsworks demo` |
 | TikTok Recommender System | `/run_tiktok` | `run tiktok recommender demo` |
+| IVM Benchmark | `/run_agents_on_dbs` | `run ivm benchmark` |
 
 When the user runs `/run_fraud_demo` or asks to run fraud detection, **read** `agentic-fraud-detection/feldera-analyze-fraud.md`
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
@@ -36,3 +37,5 @@ and follow its instructions exactly. Do not invoke it as a skill or slash comman
 
 When the user runs `/run_tiktok` or asks to run the TikTok recommender demo, **read** `tik-tok-recommender-system/README.md`
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
+
+When the user runs `/run_agents_on_dbs` or asks to run the ivm benchmark, use the `/run_agents_on_dbs` skill.

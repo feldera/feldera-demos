@@ -1,0 +1,8 @@
+# Generated benchmark results directory (parent .gitignore covers results*.txt at root)
+results/
+
+# Generated plot images
+eval/*.png
+
+# Scratch directory
+temp/
