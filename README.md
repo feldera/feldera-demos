@@ -45,7 +45,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 | Debezium + JDBC | [debezium-jdbc/](debezium-jdbc/) | `/run_debezium_jdbc` | Postgres, Debezium, Redpanda/Kafka | CDC pipeline sinking Feldera views to Postgres via Redpanda/Kafka and JDBC sink connectors. |
 | Hopsworks Integration | [hopsworks/](hopsworks/) | `/run_hopsworks` | Hopsworks, Kafka, XGBoost | Feature pipeline integration with Hopsworks feature store and Kafka, with XGBoost model training. |
 | TikTok Recommender System | [tik-tok-recommender-system/](tik-tok-recommender-system/) | `/run_tiktok` | Redpanda/Kafka | TikTok-style recommendation system using Feldera and Redpanda/Kafka. |
-| IVM Benchmark | [agents-on-dbs/](agents-on-dbs/) | `/run_agents_on_dbs` | ClickHouse, PostgreSQL | Three-engine fraud detection benchmark. Feldera IVM is O(delta) per batch; ClickHouse and PostgreSQL do full O(N) scans. At 1B rows: Feldera ~3s, ClickHouse ~226s, PostgreSQL ~8,631s. |
+| IVM Benchmark | [rolling-aggregate-bench/](rolling-aggregate-bench/) | `/run_agents_on_dbs` | ClickHouse, PostgreSQL | Three-engine fraud detection benchmark. Feldera IVM is O(delta) per batch; ClickHouse and PostgreSQL do full O(N) scans. At 1B rows: Feldera ~3s, ClickHouse ~226s, PostgreSQL ~8,631s. |
 
 ## ⚙️ Pre-requisites
 
