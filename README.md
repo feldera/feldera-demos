@@ -53,7 +53,7 @@ For a smooth experience, the following dependencies should be setup.
 
 #### feldera
 
-**Feldera instance**: You can use feldera using the [free feldera online sandbox](https://try.feldera.com) or a local setup using docker. claude will
+**Feldera instance**: You can use Feldera via the [free online sandbox](https://try.feldera.com) or a local Docker setup:
 
 | Option | How |
 |--------|-----|
@@ -73,4 +73,4 @@ curl -fsSL https://feldera.com/install-fda | bash
 
 #### uv
 
-Some demos use pythons scripts and the feldera python SDK to interact with feldera. For this a recent installation of [uv](https://docs.astral.sh/uv/getting-started/installation/) is necessary.
+Some demos use Python scripts and the Feldera Python SDK to interact with Feldera. For this a recent installation of [uv](https://docs.astral.sh/uv/getting-started/installation/) is necessary.
