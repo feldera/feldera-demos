@@ -1,4 +1,4 @@
-# Precise and Fast: Fraud Detection at Streaming Scale
+# Rolling Aggregate Benchmark: IVM vs Full Scan at Streaming Scale
 
 A benchmark comparing three engines on a live transaction stream:
 
@@ -229,14 +229,9 @@ python3 src/run_bench.py \
 | `--no-postgres` | off | Skip PostgreSQL engine |
 | `--postgres-steps` | same as `--batches` | Limit PostgreSQL to this many steps (use 10 at large scale) |
 | `--postgres-user` | `nina` | PostgreSQL username |
-| `--postgres-host` | `/var/run/postgresql` | PostgreSQL host or socket path |
-| `--postgres-port` | `5432` | PostgreSQL port |
-| `--postgres-database` | `fraud_detection` | PostgreSQL database name |
 | `--max-rss-mb` | none | Feldera pipeline memory cap in MB (e.g. `80000` for 80 GB) |
 | `--sequential` | off | Run engines one at a time for clean isolated timing |
 | `--mock` | off | Simulate queries — no DB needed |
-
----
 
 ---
 
