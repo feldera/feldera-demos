@@ -26,3 +26,14 @@ agentic-tests/
 hopsworks/hopsworks-secrets/*
 !hopsworks/hopsworks-secrets/.gitkeep
 hopsworks/fraud_streaming_model
+
+# agents-on-dbs benchmark: experiment outputs, plots, data, local venv, and local test scripts
+agents-on-dbs/experiments/
+agents-on-dbs/results*.txt
+agents-on-dbs/data/*/
+!agents-on-dbs/data/0.01x/
+agents-on-dbs/data/0.01x/.cache/
+agents-on-dbs/.venv/
+agents-on-dbs/test_*.py
+agents-on-dbs/tests/
+agents-on-dbs/eval/
