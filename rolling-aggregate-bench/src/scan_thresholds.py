@@ -7,8 +7,8 @@ then reports the distribution and suggests a threshold at a target percentile
 (default: 99th — flags the top 1% of cards).
 
 Usage:
-  python3 scan_thresholds.py --data-dir data/test
-  python3 scan_thresholds.py --data-dir data/0.1x --percentile 95
+  python3 scan_thresholds.py --data-dir <DATA_DIR>
+  python3 scan_thresholds.py --data-dir <DATA_DIR> --percentile 95
 """
 
 import argparse
