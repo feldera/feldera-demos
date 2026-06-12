@@ -5,12 +5,11 @@ run_bench.py — end-to-end benchmark: generate data, scan thresholds, run engin
 Steps:
   1. Generate customers.csv + transactions.csv + batches/ for the given scale.
   2. Scan all transactions and compute p<percentile> fraud signal thresholds.
-  3. Apply those thresholds and run the Feldera vs ClickHouse benchmark.
+  3. Apply those thresholds and run the benchmark (Feldera / ClickHouse / PostgreSQL).
 
 Usage:
-    python3 src/run_bench.py --customers 10000 --preload 10000 --batch-size 1000 --batches 10
-    python3 src/run_bench.py --customers 100000 --preload 4000000 --batch-size 2000 --batches 100
-    python3 src/run_bench.py --customers 10000 --preload 10000 --batch-size 1000 --batches 10 --no-clickhouse
+    python3 src/run_bench.py --customers 500000 --preload 1000000 --batch-size 1000 --batches 10 --sequential --mode feldera ch pg
+    python3 src/run_bench.py --customers 5000000 --preload 200000000 --batch-size 1000 --batches 10 --sequential --mode feldera ch
 """
 
 import argparse
@@ -229,7 +228,7 @@ def main() -> None:
         print("  (skipped — mock mode)")
 
     # ── STEP 3: Run benchmark ──────────────────────────────────────────────────
-    _banner("STEP 3/3  Run benchmark  (Feldera vs ClickHouse)")
+    _banner("STEP 3/3  Run benchmark  (Feldera vs ClickHouse vs PostgreSQL)")
 
     ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = _ROOT / "results" / f"{data_dir.name}_{ts}.txt"
