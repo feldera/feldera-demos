@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
 """
-demo_runner.py — Feldera vs ClickHouse fraud detection benchmark.
+demo_runner.py — three-engine rolling-aggregate benchmark (Feldera / ClickHouse / PostgreSQL).
 
 Engines:
-  CH-full  (sim 0) — all 4 signals, full O(N) columnar scan per step
-  Feldera  (sim 1) — all 4 signals, O(delta) IVM — fast AND complete
+  CH-full    (sim 0) — full O(N) columnar scan per step
+  Feldera    (sim 1) — O(delta) IVM — fast AND exact
+  PostgreSQL (sim 2) — full O(N) single-threaded window scan per step
 
 Demo modes (--mode, one or more of: feldera ch pg):
   feldera ch      — Feldera + ClickHouse: IVM speed story (default)
   pg              — PostgreSQL only
   feldera ch pg   — all three engines
 
-Data scales (--data-dir):
-  data/0.1x   ~600K transactions  — quick smoke test
-  data/1x     ~6M  transactions  — standard demo (default)
-  data/10x    ~60M transactions  — maximum latency gap
-
 Usage:
-    python3 demo_runner.py --mock                # no DB needed
-    python3 demo_runner.py --data-dir data/0.1x  # quick real run
+    python3 run_bench.py --customers 500000 --preload 1000000 --batches 10 \
+        --sequential --mode feldera ch pg
+    python3 demo_runner.py --mock   # no DB needed (simulate queries)
 """
 
 import argparse
