@@ -4,7 +4,7 @@
 </p>
 
 <p align="center">
-    <img src="https://readme-typing-svg.demolab.com?font=DM+Sans+Mono&pause=1000&color=C533B9&center=true&vCenter=true&width=435&lines=%24+claude+%2Frun_fraud_demo;%24+claude+%2Frun_fga_demo;%24+claude+%2Frun_fraud_delta_lake;%24+claude+%2Frun_debezium_mysql;%24+claude+run_hopsworks;%24+claude+%2Frun_tiktok;%24+claude+run_debezium_postgres;%24+claude+run_debezium_jdbc;%24+claude+%2Frun_rolling_aggregate_bench" alt="Run the demos" />
+    <img src="https://readme-typing-svg.demolab.com?font=DM+Sans+Mono&pause=1000&color=C533B9&center=true&vCenter=true&width=435&lines=%24+claude+%2Frun_fraud_demo;%24+claude+%2Frun_fga_demo;%24+claude+%2Frun_fraud_delta_lake;%24+claude+%2Frun_debezium_mysql;%24+claude+run_hopsworks;%24+claude+%2Frun_tiktok;%24+claude+run_debezium_postgres;%24+claude+run_debezium_jdbc;%24+claude+%2Frun_rolling_aggregate_bench;%24+claude+%2Frun_tokens_demo" alt="Run the demos" />
 </p>
 
 <p align="center">
@@ -46,6 +46,7 @@ Claude handles all steps automatically: Feldera setup, pipeline loading, SQL gen
 | Hopsworks Integration | [hopsworks/](hopsworks/) | `/run_hopsworks` | Hopsworks, Kafka, XGBoost | Feature pipeline integration with Hopsworks feature store and Kafka, with XGBoost model training. |
 | TikTok Recommender System | [tik-tok-recommender-system/](tik-tok-recommender-system/) | `/run_tiktok` | Redpanda/Kafka | TikTok-style recommendation system using Feldera and Redpanda/Kafka. |
 | IVM Benchmark | [rolling-aggregate-bench/](rolling-aggregate-bench/) | `/run_rolling_aggregate_bench` | ClickHouse, PostgreSQL | Three-engine fraud detection benchmark. Feldera IVM is O(delta) per batch; ClickHouse and PostgreSQL do full O(N) scans. At 1B rows: Feldera ~3s, ClickHouse ~226s, PostgreSQL ~8,631s. |
+| Agentic Token Cost (Multi-Engine IVM) | [agentic-tokens-demo/](agentic-tokens-demo/README.md) | `/run_tokens_demo` | AI Agent (Claude), ClickHouse, PostgreSQL | The accuracy/cost counterpart to the IVM benchmark: one fraud detector at the **same thresholds** on Feldera, ClickHouse, and Postgres — only IVM signal fidelity differs, so each engine flags a different set. An LLM analyses every flagged transaction, and the demo prices that analysis across frontier models; the run reveals the gap. |
 
 ## ⚙️ Pre-requisites
 

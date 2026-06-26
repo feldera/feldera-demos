@@ -13,6 +13,7 @@ Available demos — run via slash command or natural language:
 | Hopsworks + Feldera | `/run_hopsworks` | `run hopsworks demo` |
 | TikTok Recommender System | `/run_tiktok` | `run tiktok recommender demo` |
 | IVM Benchmark | `/run_rolling_aggregate_bench` | `run ivm benchmark` |
+| Token Cost (Multi-Engine) | `/run_tokens_demo` | `run tokens demo` |
 
 When the user runs `/run_fraud_demo` or asks to run fraud detection, **read** `agentic-fraud-detection/feldera-analyze-fraud.md`
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
@@ -39,3 +40,6 @@ When the user runs `/run_tiktok` or asks to run the TikTok recommender demo, **r
 and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.
 
 When the user runs `/run_rolling_aggregate_bench` or asks to run the ivm benchmark, use the `/run_rolling_aggregate_bench` skill.
+
+When the user runs `/run_tokens_demo` or asks to run the tokens demo, **read** `agentic-tokens-demo/feldera-analyze-tokens.md`
+and follow its instructions exactly. Do not invoke it as a skill or slash command — just read the file.

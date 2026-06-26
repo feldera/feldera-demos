@@ -37,3 +37,12 @@ rolling-aggregate-bench/.venv/
 rolling-aggregate-bench/test_*.py
 rolling-aggregate-bench/tests/
 rolling-aggregate-bench/eval/
+
+# agentic-tokens-demo: regenerable artifacts — generated dataset (too big for git), run outputs
+# (metrics/score/plots), and the composed schema files (re-derived from generated/<engine>.sql by
+# `gen_demo_data.py --schema-only`). The per-engine DETECTORS generated/<engine>.sql ARE committed.
+agentic-tokens-demo/data/
+agentic-tokens-demo/results/
+agentic-tokens-demo/generated/schema.*.sql
+agentic-tokens-demo/1.txt
+agentic-tokens-demo/*.png
